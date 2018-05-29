@@ -11,5 +11,3 @@
 --enable-decoder=mjpeg
 --enable-bsf=h264_mp4toannexb
 --enable-muxer=mp4
---enable-nvresize
-
