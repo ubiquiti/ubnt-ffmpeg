@@ -1,0 +1,15 @@
+--enable-encoder=libx264
+--enable-encoder=mjpeg
+--enable-encoder=mjpegb
+--enable-encoder=jpeg2000
+--enable-encoder=jpegls
+--enable-libx264
+--enable-gpl
+--enable-nonfree
+--enable-hwaccels
+--enable-decoder=h264
+--enable-decoder=mjpeg
+--enable-bsf=h264_mp4toannexb
+--enable-muxer=mp4
+--enable-nvresize
+
