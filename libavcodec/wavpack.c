@@ -452,7 +452,7 @@ static inline int wv_unpack_stereo(WavpackFrameContext *s, GetBitContext *gb,
                 if (type != AV_SAMPLE_FMT_S16P)
                     R2 = R + ((s->decorr[i].weightB * (int64_t)L2 + 512) >> 10);
                 else
-                    R2 = R + ((int)(s->decorr[i].weightB * (unsigned)L2 + 512) >> 10);
+                    R2 = R + (unsigned)((int)(s->decorr[i].weightB * (unsigned)L2 + 512) >> 10);
                 UPDATE_WEIGHT_CLIP(s->decorr[i].weightB, s->decorr[i].delta, L2, R);
                 R                        = R2;
                 s->decorr[i].samplesA[0] = R;
@@ -480,7 +480,7 @@ static inline int wv_unpack_stereo(WavpackFrameContext *s, GetBitContext *gb,
         }
 
         if (type == AV_SAMPLE_FMT_S16P) {
-            if (FFABS(L) + (unsigned)FFABS(R) > (1<<19)) {
+            if (FFABS((int64_t)L) + FFABS((int64_t)R) > (1<<19)) {
                 av_log(s->avctx, AV_LOG_ERROR, "sample %d %d too large\n", L, R);
                 return AVERROR_INVALIDDATA;
             }

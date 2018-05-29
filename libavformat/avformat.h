@@ -845,6 +845,8 @@ typedef struct AVStreamInternal AVStreamInternal;
 #define AV_DISPOSITION_CAPTIONS     0x10000
 #define AV_DISPOSITION_DESCRIPTIONS 0x20000
 #define AV_DISPOSITION_METADATA     0x40000
+#define AV_DISPOSITION_DEPENDENT    0x80000 ///< dependent audio stream (mix_type=0 in mpegts)
+#define AV_DISPOSITION_STILL_IMAGE 0x100000 ///< still images in video stream (still_picture_flag=1 in mpegts)
 
 /**
  * Options for behavior on timestamp wrap detection.
@@ -1101,6 +1103,13 @@ typedef struct AVStream {
      */
     int stream_identifier;
 
+    /**
+     * Details of the MPEG-TS program which created this stream.
+     */
+    int program_num;
+    int pmt_version;
+    int pmt_stream_idx;
+
     int64_t interleaver_chunk_size;
     int64_t interleaver_chunk_duration;
 
@@ -1258,6 +1267,7 @@ typedef struct AVProgram {
     int program_num;
     int pmt_pid;
     int pcr_pid;
+    int pmt_version;
 
     /*****************************************************************
      * All fields below this line are not part of the public API. They
@@ -1925,6 +1935,13 @@ typedef struct AVFormatContext {
      * - decoding: set by user
      */
     int max_streams;
+
+    /**
+     * Skip duration calcuation in estimate_timings_from_pts.
+     * - encoding: unused
+     * - decoding: set by user
+     */
+    int skip_estimate_duration_from_pts;
 } AVFormatContext;
 
 #if FF_API_FORMAT_GET_SET
@@ -2011,6 +2028,7 @@ const char *avformat_configuration(void);
  */
 const char *avformat_license(void);
 
+#if FF_API_NEXT
 /**
  * Initialize libavformat and register all the muxers, demuxers and
  * protocols. If you do not call this function, then you can select
@@ -2019,10 +2037,14 @@ const char *avformat_license(void);
  * @see av_register_input_format()
  * @see av_register_output_format()
  */
+attribute_deprecated
 void av_register_all(void);
 
+attribute_deprecated
 void av_register_input_format(AVInputFormat *format);
+attribute_deprecated
 void av_register_output_format(AVOutputFormat *format);
+#endif
 
 /**
  * Do global initialization of network libraries. This is optional,
@@ -2046,11 +2068,13 @@ int avformat_network_init(void);
  */
 int avformat_network_deinit(void);
 
+#if FF_API_NEXT
 /**
  * If f is NULL, returns the first registered input format,
  * if f is non-NULL, returns the next registered input format after f
  * or NULL if f is the last one.
  */
+attribute_deprecated
 AVInputFormat  *av_iformat_next(const AVInputFormat  *f);
 
 /**
@@ -2058,7 +2082,31 @@ AVInputFormat  *av_iformat_next(const AVInputFormat  *f);
  * if f is non-NULL, returns the next registered output format after f
  * or NULL if f is the last one.
  */
+attribute_deprecated
 AVOutputFormat *av_oformat_next(const AVOutputFormat *f);
+#endif
+
+/**
+ * Iterate over all registered muxers.
+ *
+ * @param opaque a pointer where libavformat will store the iteration state. Must
+ *               point to NULL to start the iteration.
+ *
+ * @return the next registered muxer or NULL when the iteration is
+ *         finished
+ */
+const AVOutputFormat *av_muxer_iterate(void **opaque);
+
+/**
+ * Iterate over all registered demuxers.
+ *
+ * @param opaque a pointer where libavformat will store the iteration state. Must
+ *               point to NULL to start the iteration.
+ *
+ * @return the next registered demuxer or NULL when the iteration is
+ *         finished
+ */
+const AVInputFormat *av_demuxer_iterate(void **opaque);
 
 /**
  * Allocate an AVFormatContext.

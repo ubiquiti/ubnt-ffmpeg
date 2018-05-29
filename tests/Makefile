@@ -129,7 +129,9 @@ include $(SRC_PATH)/tests/fate/flvenc.mak
 include $(SRC_PATH)/tests/fate/gapless.mak
 include $(SRC_PATH)/tests/fate/gif.mak
 include $(SRC_PATH)/tests/fate/h264.mak
+include $(SRC_PATH)/tests/fate/hap.mak
 include $(SRC_PATH)/tests/fate/hevc.mak
+include $(SRC_PATH)/tests/fate/hw.mak
 include $(SRC_PATH)/tests/fate/id3v2.mak
 include $(SRC_PATH)/tests/fate/image.mak
 include $(SRC_PATH)/tests/fate/indeo.mak
@@ -149,6 +151,7 @@ include $(SRC_PATH)/tests/fate/mov.mak
 include $(SRC_PATH)/tests/fate/mp3.mak
 include $(SRC_PATH)/tests/fate/mpc.mak
 include $(SRC_PATH)/tests/fate/mpeg4.mak
+include $(SRC_PATH)/tests/fate/mpegps.mak
 include $(SRC_PATH)/tests/fate/mpegts.mak
 include $(SRC_PATH)/tests/fate/mxf.mak
 include $(SRC_PATH)/tests/fate/opus.mak
@@ -212,6 +215,10 @@ TOOL = ffmpeg
 $(addprefix fate-, $(IGNORE_TESTS)): REPORT=ignore
 
 fate:: $(FATE)
+
+# Tests requiring hardware support are not included in a default fate run.
+fate-hw: $(FATE_HW-yes)
+FATE += $(FATE_HW-yes)
 
 $(FATE) $(FATE_TESTS-no): export PROGSUF = $(PROGSSUF)
 $(FATE) $(FATE_TESTS-no): $(FATE_UTILS:%=tests/%$(HOSTEXESUF))

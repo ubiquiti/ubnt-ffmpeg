@@ -93,10 +93,18 @@ const AVOption ff_rtsp_options[] = {
     RTSP_MEDIATYPE_OPTS("allowed_media_types", "set media types to accept from the server"),
     { "min_port", "set minimum local UDP port", OFFSET(rtp_port_min), AV_OPT_TYPE_INT, {.i64 = RTSP_RTP_PORT_MIN}, 0, 65535, DEC|ENC },
     { "max_port", "set maximum local UDP port", OFFSET(rtp_port_max), AV_OPT_TYPE_INT, {.i64 = RTSP_RTP_PORT_MAX}, 0, 65535, DEC|ENC },
-    { "timeout", "set maximum timeout (in seconds) to wait for incoming connections (-1 is infinite, imply flag listen)", OFFSET(initial_timeout), AV_OPT_TYPE_INT, {.i64 = -1}, INT_MIN, INT_MAX, DEC },
+    { "listen_timeout", "set maximum timeout (in seconds) to wait for incoming connections (-1 is infinite, imply flag listen)", OFFSET(initial_timeout), AV_OPT_TYPE_INT, {.i64 = -1}, INT_MIN, INT_MAX, DEC },
+#if FF_API_OLD_RTSP_OPTIONS
+    { "timeout", "set maximum timeout (in seconds) to wait for incoming connections (-1 is infinite, imply flag listen) (deprecated, use listen_timeout)", OFFSET(initial_timeout), AV_OPT_TYPE_INT, {.i64 = -1}, INT_MIN, INT_MAX, DEC },
     { "stimeout", "set timeout (in microseconds) of socket TCP I/O operations", OFFSET(stimeout), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },
+#else
+    { "timeout", "set timeout (in microseconds) of socket TCP I/O operations", OFFSET(stimeout), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },
+#endif
     COMMON_OPTS(),
-    { "user-agent", "override User-Agent header", OFFSET(user_agent), AV_OPT_TYPE_STRING, {.str = LIBAVFORMAT_IDENT}, 0, 0, DEC },
+    { "user_agent", "override User-Agent header", OFFSET(user_agent), AV_OPT_TYPE_STRING, {.str = LIBAVFORMAT_IDENT}, 0, 0, DEC },
+#if FF_API_OLD_RTSP_OPTIONS
+    { "user-agent", "override User-Agent header (deprecated, use user_agent)", OFFSET(user_agent), AV_OPT_TYPE_STRING, {.str = LIBAVFORMAT_IDENT}, 0, 0, DEC },
+#endif
     { NULL },
 };
 
@@ -203,7 +211,7 @@ static int get_sockaddr(AVFormatContext *s,
 }
 
 #if CONFIG_RTPDEC
-static void init_rtp_handler(RTPDynamicProtocolHandler *handler,
+static void init_rtp_handler(const RTPDynamicProtocolHandler *handler,
                              RTSPStream *rtsp_st, AVStream *st)
 {
     AVCodecParameters *par = st ? st->codecpar : NULL;
@@ -263,7 +271,7 @@ static int sdp_parse_rtpmap(AVFormatContext *s,
     }
 
     if (par->codec_id == AV_CODEC_ID_NONE) {
-        RTPDynamicProtocolHandler *handler =
+        const RTPDynamicProtocolHandler *handler =
             ff_rtp_handler_find_by_name(buf, par->codec_type);
         init_rtp_handler(handler, rtsp_st, st);
         /* If no dynamic handler was found, check with the list of standard
@@ -487,7 +495,7 @@ static void sdp_parse_line(AVFormatContext *s, SDPParseState *s1,
                 if (CONFIG_RTPDEC && !rt->ts)
                     rt->ts = avpriv_mpegts_parse_open(s);
             } else {
-                RTPDynamicProtocolHandler *handler;
+                const RTPDynamicProtocolHandler *handler;
                 handler = ff_rtp_handler_find_by_id(
                               rtsp_st->sdp_payload_type, AVMEDIA_TYPE_DATA);
                 init_rtp_handler(handler, rtsp_st, NULL);
@@ -505,7 +513,7 @@ static void sdp_parse_line(AVFormatContext *s, SDPParseState *s1,
             rtsp_st->stream_index = st->index;
             st->codecpar->codec_type = codec_type;
             if (rtsp_st->sdp_payload_type < RTP_PT_PRIVATE) {
-                RTPDynamicProtocolHandler *handler;
+                const RTPDynamicProtocolHandler *handler;
                 /* if standard payload type, we can find the codec right now */
                 ff_rtp_get_codec_info(st->codecpar, rtsp_st->sdp_payload_type);
                 if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO &&

@@ -825,7 +825,7 @@ static int map_pixel_format(AVCodecContext *avctx, HEVCSPS *sps)
         if (sps->chroma_format_idc == 3) sps->pix_fmt = AV_PIX_FMT_YUV444P;
        break;
     case 9:
-        if (sps->chroma_format_idc == 0) sps->pix_fmt = AV_PIX_FMT_GRAY16;
+        if (sps->chroma_format_idc == 0) sps->pix_fmt = AV_PIX_FMT_GRAY9;
         if (sps->chroma_format_idc == 1) sps->pix_fmt = AV_PIX_FMT_YUV420P9;
         if (sps->chroma_format_idc == 2) sps->pix_fmt = AV_PIX_FMT_YUV422P9;
         if (sps->chroma_format_idc == 3) sps->pix_fmt = AV_PIX_FMT_YUV444P9;
@@ -1100,7 +1100,6 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
         skip_bits(gb, 7); //sps_extension_7bits = get_bits(gb, 7);
         if (sps_extension_flag[0]) {
             int extended_precision_processing_flag;
-            int high_precision_offsets_enabled_flag;
             int cabac_bypass_alignment_enabled_flag;
 
             sps->transform_skip_rotation_enabled_flag = get_bits1(gb);
@@ -1115,8 +1114,8 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
                    "extended_precision_processing_flag not yet implemented\n");
 
             sps->intra_smoothing_disabled_flag       = get_bits1(gb);
-            high_precision_offsets_enabled_flag  = get_bits1(gb);
-            if (high_precision_offsets_enabled_flag)
+            sps->high_precision_offsets_enabled_flag = get_bits1(gb);
+            if (sps->high_precision_offsets_enabled_flag)
                 av_log(avctx, AV_LOG_WARNING,
                    "high_precision_offsets_enabled_flag not yet implemented\n");
 
