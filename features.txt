@@ -1,3 +1,6 @@
+--disable-bzlib
+--disable-zlib
+--disable-iconv
 --enable-encoder=libx264
 --enable-encoder=mjpeg
 --enable-encoder=mjpegb
