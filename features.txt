@@ -2,8 +2,8 @@
 --disable-bzlib
 --disable-zlib
 --disable-iconv
---disable-all
---disable-doc
+#--disable-all
+#--disable-doc
 
 #enable necessary codecs
 --enable-avcodec
