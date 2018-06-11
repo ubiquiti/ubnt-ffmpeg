@@ -3,7 +3,6 @@
 --disable-zlib
 --disable-iconv
 --disable-all
---disable-programs
 --disable-doc
 
 #enable necessary codecs
