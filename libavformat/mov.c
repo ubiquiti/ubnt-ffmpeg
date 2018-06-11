@@ -3587,7 +3587,7 @@ static void mov_fix_index(MOVContext *mov, AVStream *st)
                     flags |= AVINDEX_DISCARD_FRAME;
                     av_log(mov->fc, AV_LOG_DEBUG, "drop a frame at curr_cts: %"PRId64" @ %"PRId64"\n", curr_cts, index);
 
-                    if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && edit_list_start_encountered == 0) {
+                    if (edit_list_start_encountered == 0) {
                         num_discarded_begin++;
                         frame_duration_buffer = av_realloc(frame_duration_buffer,
                                                            num_discarded_begin * sizeof(int64_t));
@@ -3598,7 +3598,8 @@ static void mov_fix_index(MOVContext *mov, AVStream *st)
                         frame_duration_buffer[num_discarded_begin - 1] = frame_duration;
 
                         // Increment skip_samples for the first non-zero audio edit list
-                        if (first_non_zero_audio_edit > 0 && st->codecpar->codec_id != AV_CODEC_ID_VORBIS) {
+                        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO &&
+                            first_non_zero_audio_edit > 0 && st->codecpar->codec_id != AV_CODEC_ID_VORBIS) {
                             st->skip_samples += frame_duration;
                         }
                     }
@@ -3611,9 +3612,9 @@ static void mov_fix_index(MOVContext *mov, AVStream *st)
                 }
                 if (edit_list_start_encountered == 0) {
                     edit_list_start_encountered = 1;
-                    // Make timestamps strictly monotonically increasing for audio, by rewriting timestamps for
+                    // Make timestamps strictly monotonically increasing by rewriting timestamps for
                     // discarded packets.
-                    if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && frame_duration_buffer) {
+                    if (frame_duration_buffer) {
                         fix_index_entry_timestamps(st, st->nb_index_entries, edit_list_dts_counter,
                                                    frame_duration_buffer, num_discarded_begin);
                         av_freep(&frame_duration_buffer);
@@ -3672,11 +3673,15 @@ static void mov_fix_index(MOVContext *mov, AVStream *st)
 
     // If the minimum pts turns out to be greater than zero after fixing the index, then we subtract the
     // dts by that amount to make the first pts zero.
-    if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && msc->min_corrected_pts > 0) {
-        av_log(mov->fc, AV_LOG_DEBUG, "Offset DTS by %"PRId64" to make first pts zero.\n", msc->min_corrected_pts);
-        for (i = 0; i < st->nb_index_entries; ++i) {
-            st->index_entries[i].timestamp -= msc->min_corrected_pts;
+    if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        if (msc->min_corrected_pts > 0) {
+            av_log(mov->fc, AV_LOG_DEBUG, "Offset DTS by %"PRId64" to make first pts zero.\n", msc->min_corrected_pts);
+            for (i = 0; i < st->nb_index_entries; ++i) {
+                st->index_entries[i].timestamp -= msc->min_corrected_pts;
+            }
         }
+        // Start time should be equal to zero or the duration of any empty edits.
+        st->start_time = empty_edits_sum_duration;
     }
 
     // Update av stream length, if it ends up shorter than the track's media duration
@@ -4010,6 +4015,14 @@ static void mov_build_index(MOVContext *mov, AVStream *st)
     if (!mov->ignore_editlist && mov->advanced_editlist) {
         // Fix index according to edit lists.
         mov_fix_index(mov, st);
+    }
+
+    // Update start time of the stream.
+    if (st->start_time == AV_NOPTS_VALUE && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && st->nb_index_entries > 0) {
+        st->start_time = st->index_entries[0].timestamp + sc->dts_shift;
+        if (sc->ctts_data) {
+            st->start_time += sc->ctts_data[0].duration;
+        }
     }
 
     mov_estimate_video_delay(mov, st);
@@ -5895,7 +5908,7 @@ static int mov_read_senc(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         return AVERROR(ENOMEM);
 
     for (i = 0; i < sample_count; i++) {
-        unsigned int min_samples = FFMIN(FFMAX(i, 1024 * 1024), sample_count);
+        unsigned int min_samples = FFMIN(FFMAX(i + 1, 1024 * 1024), sample_count);
         encrypted_samples = av_fast_realloc(encryption_index->encrypted_samples, &alloc_size,
                                             min_samples * sizeof(*encrypted_samples));
         if (encrypted_samples) {
@@ -5949,7 +5962,7 @@ static int mov_parse_auxiliary_info(MOVContext *c, MOVStreamContext *sc, AVIOCon
     }
 
     for (i = 0; i < sample_count && !pb->eof_reached; i++) {
-        unsigned int min_samples = FFMIN(FFMAX(i, 1024 * 1024), sample_count);
+        unsigned int min_samples = FFMIN(FFMAX(i + 1, 1024 * 1024), sample_count);
         encrypted_samples = av_fast_realloc(encryption_index->encrypted_samples, &alloc_size,
                                             min_samples * sizeof(*encrypted_samples));
         if (!encrypted_samples) {
@@ -6022,7 +6035,7 @@ static int mov_read_saiz(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     MOVEncryptionIndex *encryption_index;
     MOVStreamContext *sc;
     int ret;
-    unsigned int sample_count;
+    unsigned int sample_count, aux_info_type, aux_info_param;
 
     ret = get_current_encryption_info(c, &encryption_index, &sc);
     if (ret != 1)
@@ -6041,14 +6054,33 @@ static int mov_read_saiz(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     avio_r8(pb); /* version */
     if (avio_rb24(pb) & 0x01) {  /* flags */
-        if (avio_rb32(pb) != sc->cenc.default_encrypted_sample->scheme) {
-            av_log(c->fc, AV_LOG_DEBUG, "Ignoring saiz box with non-zero aux_info_type\n");
-            return 0;
+        aux_info_type = avio_rb32(pb);
+        aux_info_param = avio_rb32(pb);
+        if (sc->cenc.default_encrypted_sample) {
+            if (aux_info_type != sc->cenc.default_encrypted_sample->scheme) {
+                av_log(c->fc, AV_LOG_DEBUG, "Ignoring saiz box with non-zero aux_info_type\n");
+                return 0;
+            }
+            if (aux_info_param != 0) {
+                av_log(c->fc, AV_LOG_DEBUG, "Ignoring saiz box with non-zero aux_info_type_parameter\n");
+                return 0;
+            }
+        } else {
+            // Didn't see 'schm' or 'tenc', so this isn't encrypted.
+            if ((aux_info_type == MKBETAG('c','e','n','c') ||
+                 aux_info_type == MKBETAG('c','e','n','s') ||
+                 aux_info_type == MKBETAG('c','b','c','1') ||
+                 aux_info_type == MKBETAG('c','b','c','s')) &&
+                aux_info_param == 0) {
+                av_log(c->fc, AV_LOG_ERROR, "Saw encrypted saiz without schm/tenc\n");
+                return AVERROR_INVALIDDATA;
+            } else {
+                return 0;
+            }
         }
-        if (avio_rb32(pb) != 0) {
-            av_log(c->fc, AV_LOG_DEBUG, "Ignoring saiz box with non-zero aux_info_type_parameter\n");
-            return 0;
-        }
+    } else if (!sc->cenc.default_encrypted_sample) {
+        // Didn't see 'schm' or 'tenc', so this isn't encrypted.
+        return 0;
     }
 
     encryption_index->auxiliary_info_default_size = avio_r8(pb);
@@ -6076,7 +6108,8 @@ static int mov_read_saio(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     MOVEncryptionIndex *encryption_index;
     MOVStreamContext *sc;
     int i, ret;
-    unsigned int version, entry_count, alloc_size = 0;
+    unsigned int version, entry_count, aux_info_type, aux_info_param;
+    unsigned int alloc_size = 0;
 
     ret = get_current_encryption_info(c, &encryption_index, &sc);
     if (ret != 1)
@@ -6095,14 +6128,33 @@ static int mov_read_saio(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     version = avio_r8(pb); /* version */
     if (avio_rb24(pb) & 0x01) {  /* flags */
-        if (avio_rb32(pb) != sc->cenc.default_encrypted_sample->scheme) {
-            av_log(c->fc, AV_LOG_DEBUG, "Ignoring saio box with non-zero aux_info_type\n");
-            return 0;
+        aux_info_type = avio_rb32(pb);
+        aux_info_param = avio_rb32(pb);
+        if (sc->cenc.default_encrypted_sample) {
+            if (aux_info_type != sc->cenc.default_encrypted_sample->scheme) {
+                av_log(c->fc, AV_LOG_DEBUG, "Ignoring saio box with non-zero aux_info_type\n");
+                return 0;
+            }
+            if (aux_info_param != 0) {
+                av_log(c->fc, AV_LOG_DEBUG, "Ignoring saio box with non-zero aux_info_type_parameter\n");
+                return 0;
+            }
+        } else {
+            // Didn't see 'schm' or 'tenc', so this isn't encrypted.
+            if ((aux_info_type == MKBETAG('c','e','n','c') ||
+                 aux_info_type == MKBETAG('c','e','n','s') ||
+                 aux_info_type == MKBETAG('c','b','c','1') ||
+                 aux_info_type == MKBETAG('c','b','c','s')) &&
+                aux_info_param == 0) {
+                av_log(c->fc, AV_LOG_ERROR, "Saw encrypted saio without schm/tenc\n");
+                return AVERROR_INVALIDDATA;
+            } else {
+                return 0;
+            }
         }
-        if (avio_rb32(pb) != 0) {
-            av_log(c->fc, AV_LOG_DEBUG, "Ignoring saio box with non-zero aux_info_type_parameter\n");
-            return 0;
-        }
+    } else if (!sc->cenc.default_encrypted_sample) {
+        // Didn't see 'schm' or 'tenc', so this isn't encrypted.
+        return 0;
     }
 
     entry_count = avio_rb32(pb);
@@ -6110,7 +6162,7 @@ static int mov_read_saio(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         return AVERROR(ENOMEM);
 
     for (i = 0; i < entry_count && !pb->eof_reached; i++) {
-        unsigned int min_offsets = FFMIN(FFMAX(i, 1024), entry_count);
+        unsigned int min_offsets = FFMIN(FFMAX(i + 1, 1024), entry_count);
         auxiliary_offsets = av_fast_realloc(
             encryption_index->auxiliary_offsets, &alloc_size,
             min_offsets * sizeof(*auxiliary_offsets));
