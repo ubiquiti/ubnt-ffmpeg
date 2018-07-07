@@ -11,6 +11,8 @@ DEST_FOLDER=${LOCAL_PREFIX}/ffmpeg_install
 	--extra-ldflags="-L${LOCAL_PREFIX}/lib -L${DEST_FOLDER}/lib" \
 	--enable-gpl \
 	--enable-libx264 \
+	--enable-debug \
+	--disable-optimizations \
 
 
 make -j32 install
