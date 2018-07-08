@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -e
+
+COMPILER_BASE=aarch64-linux-gnu-
+export CC=${COMPILER_BASE}gcc
+
+
+./configure \
+	--enable-cross-compile \
+	--target-os=linux \
+	--cross-prefix=${COMPILER_BASE} \
+	--arch=aarch64 \
+	--cpu=generic \
+	--prefix="/tmp/ffmpeg_bin" \
+	--extra-cflags="-DPIC -fPIC -funwind-tables -g"
+
+
+make -j32 install
