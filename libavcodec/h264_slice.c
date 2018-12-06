@@ -1356,6 +1356,10 @@ static int h264_select_output_frame(H264Context *h)
         h->avctx->has_b_frames = FFMAX(h->avctx->has_b_frames, sps->num_reorder_frames);
     }
 
+	//forcing the buffer size if needed
+	if((!sps->bitstream_restriction_flag) && (h->avctx->flags & AV_CODEC_FLAG_LOW_DELAY))
+        h->avctx->has_b_frames = 0;
+
     for (i = 0; 1; i++) {
         if(i == MAX_DELAYED_PIC_COUNT || cur->poc < h->last_pocs[i]){
             if(i)
