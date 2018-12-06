@@ -2,6 +2,17 @@ Entries are sorted chronologically from oldest to youngest within each release,
 releases are sorted from youngest to oldest.
 
 version <next>:
+- tpad filter
+- AV1 decoding support through libdav1d
+- dedot filter
+- chromashift and rgbashift filters
+- freezedetect filter
+- truehd_core bitstream filter
+- dhav demuxer
+- PCM-DVD encoder
+
+
+version 4.1:
 - deblock filter
 - tmix filter
 - amplify filter
@@ -30,6 +41,19 @@ version <next>:
 - amultiply filter
 - Block-Matching 3d (bm3d) denoising filter
 - acrossover filter
+- ilbc decoder
+- audio denoiser as afftdn filter
+- AV1 parser
+- SER demuxer
+- sinc audio filter source
+- chromahold filter
+- setparams filter
+- vibrance filter
+- decoding S12M timecode in h264
+- xstack filter
+- pcm vidc decoder and encoder
+- (a)graphmonitor filter
+- yadif_cuda filter
 
 
 version 4.0:

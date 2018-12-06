@@ -61,7 +61,7 @@ typedef struct AV1Packet {
 /**
  * Extract an OBU from a raw bitstream.
  *
- * @note This function does not copy or store any bistream data. All
+ * @note This function does not copy or store any bitstream data. All
  *       the pointers in the AV1OBU structure will be valid as long
  *       as the input buffer also is.
  */
@@ -71,7 +71,7 @@ int ff_av1_extract_obu(AV1OBU *obu, const uint8_t *buf, int length,
 /**
  * Split an input packet into OBUs.
  *
- * @note This function does not copy or store any bistream data. All
+ * @note This function does not copy or store any bitstream data. All
  *       the pointers in the AV1Packet structure will be valid as
  *       long as the input buffer also is.
  */
@@ -134,8 +134,8 @@ static inline int parse_obu_header(const uint8_t *buf, int buf_size,
 
     size = *obu_size + *start_pos;
 
-    if (size > INT_MAX)
-        return AVERROR(ERANGE);
+    if (size > buf_size)
+        return AVERROR_INVALIDDATA;
 
     return size;
 }

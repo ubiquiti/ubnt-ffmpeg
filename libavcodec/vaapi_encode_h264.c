@@ -30,6 +30,7 @@
 #include "cbs.h"
 #include "cbs_h264.h"
 #include "h264.h"
+#include "h264_levels.h"
 #include "h264_sei.h"
 #include "internal.h"
 #include "vaapi_encode.h"
@@ -52,7 +53,6 @@ typedef struct VAAPIEncodeH264Context {
     // User options.
     int qp;
     int quality;
-    int low_power;
     int coder;
     int aud;
     int sei;
@@ -295,6 +295,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
     H264RawPPS                        *pps = &priv->raw_pps;
     VAEncSequenceParameterBufferH264 *vseq = ctx->codec_sequence_params;
     VAEncPictureParameterBufferH264  *vpic = ctx->codec_picture_params;
+    int dpb_frames;
 
     memset(&priv->current_access_unit, 0,
            sizeof(priv->current_access_unit));
@@ -306,12 +307,46 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
     sps->nal_unit_header.nal_unit_type = H264_NAL_SPS;
 
     sps->profile_idc = avctx->profile & 0xff;
-    sps->constraint_set1_flag =
-        !!(avctx->profile & FF_PROFILE_H264_CONSTRAINED);
-    sps->constraint_set3_flag =
-        !!(avctx->profile & FF_PROFILE_H264_INTRA);
 
-    sps->level_idc = avctx->level;
+    if (avctx->profile == FF_PROFILE_H264_CONSTRAINED_BASELINE ||
+        avctx->profile == FF_PROFILE_H264_MAIN)
+        sps->constraint_set1_flag = 1;
+
+    if (avctx->profile == FF_PROFILE_H264_HIGH)
+        sps->constraint_set3_flag = ctx->gop_size == 1;
+
+    if (avctx->profile == FF_PROFILE_H264_MAIN ||
+        avctx->profile == FF_PROFILE_H264_HIGH) {
+        sps->constraint_set4_flag = 1;
+        sps->constraint_set5_flag = ctx->b_per_p == 0;
+    }
+
+    if (ctx->gop_size == 1)
+        dpb_frames = 0;
+    else
+        dpb_frames = 1 + (ctx->b_per_p > 0);
+
+    if (avctx->level != FF_LEVEL_UNKNOWN) {
+        sps->level_idc = avctx->level;
+    } else {
+        const H264LevelDescriptor *level;
+
+        level = ff_h264_guess_level(sps->profile_idc,
+                                    avctx->bit_rate,
+                                    priv->mb_width  * 16,
+                                    priv->mb_height * 16,
+                                    dpb_frames);
+        if (level) {
+            av_log(avctx, AV_LOG_VERBOSE, "Using level %s.\n", level->name);
+            if (level->constraint_set3_flag)
+                sps->constraint_set3_flag = 1;
+            sps->level_idc = level->level_idc;
+        } else {
+            av_log(avctx, AV_LOG_WARNING, "Stream will not conform "
+                   "to any level: using level 6.2.\n");
+            sps->level_idc = 62;
+        }
+    }
 
     sps->seq_parameter_set_id = 0;
     sps->chroma_format_idc    = 1;
@@ -321,9 +356,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
     sps->log2_max_pic_order_cnt_lsb_minus4 =
         av_clip(av_log2(ctx->b_per_p + 1) - 2, 0, 12);
 
-    sps->max_num_ref_frames =
-        (avctx->profile & FF_PROFILE_H264_INTRA) ? 0 :
-        1 + (ctx->b_per_p > 0);
+    sps->max_num_ref_frames = dpb_frames;
 
     sps->pic_width_in_mbs_minus1        = priv->mb_width  - 1;
     sps->pic_height_in_map_units_minus1 = priv->mb_height - 1;
@@ -356,18 +389,20 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
             {  80, 33 }, {  18, 11 }, {  15, 11 }, {  64, 33 },
             { 160, 99 }, {   4,  3 }, {   3,  2 }, {   2,  1 },
         };
-        int i;
+        int num, den, i;
+        av_reduce(&num, &den, avctx->sample_aspect_ratio.num,
+                  avctx->sample_aspect_ratio.den, 65535);
         for (i = 0; i < FF_ARRAY_ELEMS(sar_idc); i++) {
-            if (avctx->sample_aspect_ratio.num == sar_idc[i].num &&
-                avctx->sample_aspect_ratio.den == sar_idc[i].den) {
+            if (num == sar_idc[i].num &&
+                den == sar_idc[i].den) {
                 sps->vui.aspect_ratio_idc = i;
                 break;
             }
         }
         if (i >= FF_ARRAY_ELEMS(sar_idc)) {
             sps->vui.aspect_ratio_idc = 255;
-            sps->vui.sar_width  = avctx->sample_aspect_ratio.num;
-            sps->vui.sar_height = avctx->sample_aspect_ratio.den;
+            sps->vui.sar_width  = num;
+            sps->vui.sar_height = den;
         }
         sps->vui.aspect_ratio_info_present_flag = 1;
     }
@@ -426,9 +461,9 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         // Try to scale these to a sensible range so that the
         // golomb encode of the value is not overlong.
         hrd->bit_rate_scale =
-            av_clip_uintp2(av_log2(avctx->bit_rate) - 15 - 6, 4);
+            av_clip_uintp2(av_log2(ctx->va_bit_rate) - 15 - 6, 4);
         hrd->bit_rate_value_minus1[0] =
-            (avctx->bit_rate >> hrd->bit_rate_scale + 6) - 1;
+            (ctx->va_bit_rate >> hrd->bit_rate_scale + 6) - 1;
 
         hrd->cpb_size_scale =
             av_clip_uintp2(av_log2(ctx->hrd_params.hrd.buffer_size) - 15 - 4, 4);
@@ -458,8 +493,8 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
 
     sps->vui.bitstream_restriction_flag    = 1;
     sps->vui.motion_vectors_over_pic_boundaries_flag = 1;
-    sps->vui.log2_max_mv_length_horizontal = 16;
-    sps->vui.log2_max_mv_length_vertical   = 16;
+    sps->vui.log2_max_mv_length_horizontal = 15;
+    sps->vui.log2_max_mv_length_vertical   = 15;
     sps->vui.max_num_reorder_frames        = (ctx->b_per_p > 0);
     sps->vui.max_dec_frame_buffering       = sps->max_num_ref_frames;
 
@@ -494,11 +529,11 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
     *vseq = (VAEncSequenceParameterBufferH264) {
         .seq_parameter_set_id = sps->seq_parameter_set_id,
         .level_idc        = sps->level_idc,
-        .intra_period     = avctx->gop_size,
-        .intra_idr_period = avctx->gop_size,
+        .intra_period     = ctx->gop_size,
+        .intra_idr_period = ctx->gop_size,
         .ip_period        = ctx->b_per_p + 1,
 
-        .bits_per_second       = avctx->bit_rate,
+        .bits_per_second       = ctx->va_bit_rate,
         .max_num_ref_frames    = sps->max_num_ref_frames,
         .picture_width_in_mbs  = sps->pic_width_in_mbs_minus1 + 1,
         .picture_height_in_mbs = sps->pic_height_in_map_units_minus1 + 1,
@@ -700,8 +735,6 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     vpic->pic_fields.bits.idr_pic_flag       = (pic->type == PICTURE_TYPE_IDR);
     vpic->pic_fields.bits.reference_pic_flag = (pic->type != PICTURE_TYPE_B);
 
-    pic->nb_slices = 1;
-
     return 0;
 }
 
@@ -725,8 +758,7 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
         sh->nal_unit_header.nal_ref_idc   = pic->type != PICTURE_TYPE_B;
     }
 
-    // Only one slice per frame.
-    sh->first_mb_in_slice = 0;
+    sh->first_mb_in_slice = slice->block_start;
     sh->slice_type        = priv->slice_type;
 
     sh->pic_parameter_set_id = pps->pic_parameter_set_id;
@@ -747,8 +779,8 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
         sh->slice_qp_delta = priv->fixed_qp_idr - (pps->pic_init_qp_minus26 + 26);
 
 
-    vslice->macroblock_address = sh->first_mb_in_slice;
-    vslice->num_macroblocks    = priv->mb_width * priv->mb_height;
+    vslice->macroblock_address = slice->block_start;
+    vslice->num_macroblocks    = slice->block_size;
 
     vslice->macroblock_info = VA_INVALID_ID;
 
@@ -824,16 +856,9 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         priv->fixed_qp_p   = 26;
         priv->fixed_qp_b   = 26;
 
-        av_log(avctx, AV_LOG_DEBUG, "Using %s-bitrate = %"PRId64" bps.\n",
-               ctx->va_rc_mode == VA_RC_CBR ? "constant" : "variable",
-               avctx->bit_rate);
-
     } else {
         av_assert0(0 && "Invalid RC mode.");
     }
-
-    if (avctx->compression_level == FF_COMPRESSION_DEFAULT)
-        avctx->compression_level = priv->quality;
 
     if (priv->sei & SEI_IDENTIFIER) {
         const char *lavc  = LIBAVCODEC_IDENT;
@@ -866,7 +891,19 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
     return 0;
 }
 
+static const VAAPIEncodeProfile vaapi_encode_h264_profiles[] = {
+    { FF_PROFILE_H264_HIGH, 8, 3, 1, 1, VAProfileH264High },
+    { FF_PROFILE_H264_MAIN, 8, 3, 1, 1, VAProfileH264Main },
+    { FF_PROFILE_H264_CONSTRAINED_BASELINE,
+                            8, 3, 1, 1, VAProfileH264ConstrainedBaseline },
+    { FF_PROFILE_UNKNOWN }
+};
+
 static const VAAPIEncodeType vaapi_encode_type_h264 = {
+    .profiles              = vaapi_encode_h264_profiles,
+
+    .flags                 = FLAG_SLICE_CONTROL,
+
     .configure             = &vaapi_encode_h264_configure,
 
     .sequence_params_size  = sizeof(VAEncSequenceParameterBufferH264),
@@ -898,31 +935,20 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         avctx->profile = priv->profile;
     if (avctx->level == FF_LEVEL_UNKNOWN)
         avctx->level = priv->level;
+    if (avctx->compression_level == FF_COMPRESSION_DEFAULT)
+        avctx->compression_level = priv->quality;
 
+    // Reject unsupported profiles.
     switch (avctx->profile) {
     case FF_PROFILE_H264_BASELINE:
         av_log(avctx, AV_LOG_WARNING, "H.264 baseline profile is not "
                "supported, using constrained baseline profile instead.\n");
         avctx->profile = FF_PROFILE_H264_CONSTRAINED_BASELINE;
-    case FF_PROFILE_H264_CONSTRAINED_BASELINE:
-        ctx->va_profile = VAProfileH264ConstrainedBaseline;
-        if (avctx->max_b_frames != 0) {
-            avctx->max_b_frames = 0;
-            av_log(avctx, AV_LOG_WARNING, "H.264 constrained baseline profile "
-                   "doesn't support encoding with B frames, disabling them.\n");
-        }
-        break;
-    case FF_PROFILE_H264_MAIN:
-        ctx->va_profile = VAProfileH264Main;
         break;
     case FF_PROFILE_H264_EXTENDED:
         av_log(avctx, AV_LOG_ERROR, "H.264 extended profile "
                "is not supported.\n");
         return AVERROR_PATCHWELCOME;
-    case FF_PROFILE_UNKNOWN:
-    case FF_PROFILE_H264_HIGH:
-        ctx->va_profile = VAProfileH264High;
-        break;
     case FF_PROFILE_H264_HIGH_10:
     case FF_PROFILE_H264_HIGH_10_INTRA:
         av_log(avctx, AV_LOG_ERROR, "H.264 10-bit profiles "
@@ -937,41 +963,23 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         av_log(avctx, AV_LOG_ERROR, "H.264 non-4:2:0 profiles "
                "are not supported.\n");
         return AVERROR_PATCHWELCOME;
-    default:
-        av_log(avctx, AV_LOG_ERROR, "Unknown H.264 profile %d.\n",
-               avctx->profile);
-        return AVERROR(EINVAL);
-    }
-    if (priv->low_power) {
-#if VA_CHECK_VERSION(0, 39, 2)
-        ctx->va_entrypoint = VAEntrypointEncSliceLP;
-#else
-        av_log(avctx, AV_LOG_ERROR, "Low-power encoding is not "
-               "supported with this VAAPI version.\n");
-        return AVERROR(EINVAL);
-#endif
-    } else {
-        ctx->va_entrypoint = VAEntrypointEncSlice;
     }
 
-    // Only 8-bit encode is supported.
-    ctx->va_rt_format = VA_RT_FORMAT_YUV420;
+    if (avctx->level != FF_LEVEL_UNKNOWN && avctx->level & ~0xff) {
+        av_log(avctx, AV_LOG_ERROR, "Invalid level %d: must fit "
+               "in 8-bit unsigned integer.\n", avctx->level);
+        return AVERROR(EINVAL);
+    }
 
-    if (avctx->bit_rate > 0) {
-        if (avctx->rc_max_rate == avctx->bit_rate)
-            ctx->va_rc_mode = VA_RC_CBR;
-        else
-            ctx->va_rc_mode = VA_RC_VBR;
-    } else
-        ctx->va_rc_mode = VA_RC_CQP;
-
-    ctx->va_packed_headers =
+    ctx->desired_packed_headers =
         VA_ENC_PACKED_HEADER_SEQUENCE | // SPS and PPS.
         VA_ENC_PACKED_HEADER_SLICE    | // Slice headers.
         VA_ENC_PACKED_HEADER_MISC;      // SEI.
 
     ctx->surface_width  = FFALIGN(avctx->width,  16);
     ctx->surface_height = FFALIGN(avctx->height, 16);
+
+    ctx->slice_block_height = ctx->slice_block_width = 16;
 
     return ff_vaapi_encode_init(avctx);
 }
@@ -989,13 +997,12 @@ static av_cold int vaapi_encode_h264_close(AVCodecContext *avctx)
 #define OFFSET(x) offsetof(VAAPIEncodeH264Context, x)
 #define FLAGS (AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM)
 static const AVOption vaapi_encode_h264_options[] = {
+    VAAPI_ENCODE_COMMON_OPTIONS,
+
     { "qp", "Constant QP (for P-frames; scaled by qfactor/qoffset for I/B)",
       OFFSET(qp), AV_OPT_TYPE_INT, { .i64 = 20 }, 0, 52, FLAGS },
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
-      OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },
-    { "low_power", "Use low-power encoding mode (experimental: only supported "
-      "on some platforms, does not support all features)",
-      OFFSET(low_power), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
+      OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, INT_MAX, FLAGS },
     { "coder", "Entropy coder type",
       OFFSET(coder), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS, "coder" },
         { "cavlc", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, INT_MIN, INT_MAX, FLAGS, "coder" },
@@ -1004,7 +1011,7 @@ static const AVOption vaapi_encode_h264_options[] = {
         { "ac",    NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 1 }, INT_MIN, INT_MAX, FLAGS, "coder" },
 
     { "aud", "Include AUD",
-      OFFSET(aud), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
+      OFFSET(aud), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, FLAGS },
 
     { "sei", "Set SEI to include",
       OFFSET(sei), AV_OPT_TYPE_FLAGS,
@@ -1022,7 +1029,7 @@ static const AVOption vaapi_encode_h264_options[] = {
 
     { "profile", "Set profile (profile_idc and constraint_set*_flag)",
       OFFSET(profile), AV_OPT_TYPE_INT,
-      { .i64 = FF_PROFILE_H264_HIGH }, 0x0000, 0xffff, FLAGS, "profile" },
+      { .i64 = FF_PROFILE_UNKNOWN }, FF_PROFILE_UNKNOWN, 0xffff, FLAGS, "profile" },
 
 #define PROFILE(name, value)  name, NULL, 0, AV_OPT_TYPE_CONST, \
       { .i64 = value }, 0, 0, FLAGS, "profile"
@@ -1033,7 +1040,7 @@ static const AVOption vaapi_encode_h264_options[] = {
 
     { "level", "Set level (level_idc)",
       OFFSET(level), AV_OPT_TYPE_INT,
-      { .i64 = 51 }, 0x00, 0xff, FLAGS, "level" },
+      { .i64 = FF_LEVEL_UNKNOWN }, FF_LEVEL_UNKNOWN, 0xff, FLAGS, "level" },
 
 #define LEVEL(name, value) name, NULL, 0, AV_OPT_TYPE_CONST, \
       { .i64 = value }, 0, 0, FLAGS, "level"
@@ -1069,7 +1076,8 @@ static const AVCodecDefault vaapi_encode_h264_defaults[] = {
     { "i_qoffset",      "0"   },
     { "b_qfactor",      "6/5" },
     { "b_qoffset",      "0"   },
-    { "qmin",           "0"   },
+    { "qmin",           "-1"  },
+    { "qmax",           "-1"  },
     { NULL },
 };
 

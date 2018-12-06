@@ -71,8 +71,8 @@ static int vaapi_encode_vp9_init_sequence_params(AVCodecContext *avctx)
     vseq->kf_auto = 0;
 
     if (!(ctx->va_rc_mode & VA_RC_CQP)) {
-        vseq->bits_per_second = avctx->bit_rate;
-        vseq->intra_period    = avctx->gop_size;
+        vseq->bits_per_second = ctx->va_bit_rate;
+        vseq->intra_period    = ctx->gop_size;
     }
 
     vpic->frame_width_src  = avctx->width;
@@ -86,6 +86,7 @@ static int vaapi_encode_vp9_init_sequence_params(AVCodecContext *avctx)
 static int vaapi_encode_vp9_init_picture_params(AVCodecContext *avctx,
                                                 VAAPIEncodePicture *pic)
 {
+    VAAPIEncodeContext              *ctx = avctx->priv_data;
     VAAPIEncodeVP9Context          *priv = avctx->priv_data;
     VAEncPictureParameterBufferVP9 *vpic = pic->codec_picture_params;
     int i;
@@ -102,7 +103,7 @@ static int vaapi_encode_vp9_init_picture_params(AVCodecContext *avctx,
         break;
     case PICTURE_TYPE_P:
         av_assert0(pic->nb_refs == 1);
-        if (avctx->max_b_frames > 0) {
+        if (ctx->b_per_p > 0) {
             if (priv->last_ref_dir) {
                 vpic->ref_flags.bits.ref_frame_ctrl_l0  = 2;
                 vpic->ref_flags.bits.ref_gf_idx         = 1;
@@ -174,7 +175,7 @@ static int vaapi_encode_vp9_init_picture_params(AVCodecContext *avctx,
     vpic->filter_level    = priv->loop_filter_level;
     vpic->sharpness_level = priv->loop_filter_sharpness;
 
-    if (avctx->max_b_frames > 0 && pic->type == PICTURE_TYPE_P)
+    if (ctx->b_per_p > 0 && pic->type == PICTURE_TYPE_P)
         priv->last_ref_dir = !priv->last_ref_dir;
 
     return 0;
@@ -203,7 +204,15 @@ static av_cold int vaapi_encode_vp9_configure(AVCodecContext *avctx)
     return 0;
 }
 
+static const VAAPIEncodeProfile vaapi_encode_vp9_profiles[] = {
+    { FF_PROFILE_VP9_0,  8, 3, 1, 1, VAProfileVP9Profile0 },
+    { FF_PROFILE_VP9_2, 10, 3, 1, 1, VAProfileVP9Profile2 },
+    { FF_PROFILE_UNKNOWN }
+};
+
 static const VAAPIEncodeType vaapi_encode_type_vp9 = {
+    .profiles              = vaapi_encode_vp9_profiles,
+
     .configure             = &vaapi_encode_vp9_configure,
 
     .sequence_params_size  = sizeof(VAEncSequenceParameterBufferVP9),
@@ -219,44 +228,10 @@ static av_cold int vaapi_encode_vp9_init(AVCodecContext *avctx)
 
     ctx->codec = &vaapi_encode_type_vp9;
 
-    switch (avctx->profile) {
-    case FF_PROFILE_VP9_0:
-    case FF_PROFILE_UNKNOWN:
-        ctx->va_profile = VAProfileVP9Profile0;
-        ctx->va_rt_format = VA_RT_FORMAT_YUV420;
-        break;
-    case FF_PROFILE_VP9_1:
-        av_log(avctx, AV_LOG_ERROR, "VP9 profile 1 is not "
-               "supported.\n");
-        return AVERROR_PATCHWELCOME;
-    case FF_PROFILE_VP9_2:
-        ctx->va_profile = VAProfileVP9Profile2;
-        ctx->va_rt_format = VA_RT_FORMAT_YUV420_10BPP;
-        break;
-    case FF_PROFILE_VP9_3:
-        av_log(avctx, AV_LOG_ERROR, "VP9 profile 3 is not "
-               "supported.\n");
-        return AVERROR_PATCHWELCOME;
-    default:
-        av_log(avctx, AV_LOG_ERROR, "Unknown VP9 profile %d.\n",
-               avctx->profile);
-        return AVERROR(EINVAL);
-    }
-    ctx->va_entrypoint = VAEntrypointEncSlice;
-
-    if (avctx->flags & AV_CODEC_FLAG_QSCALE) {
-        ctx->va_rc_mode = VA_RC_CQP;
-    } else if (avctx->bit_rate > 0) {
-        if (avctx->bit_rate == avctx->rc_max_rate)
-            ctx->va_rc_mode = VA_RC_CBR;
-        else
-            ctx->va_rc_mode = VA_RC_VBR;
-    } else {
-        ctx->va_rc_mode = VA_RC_CQP;
-    }
-
-    // Packed headers are not currently supported.
-    ctx->va_packed_headers = 0;
+    // No packed headers are currently desired.  They could be written,
+    // but there isn't any reason to do so - the one usable driver (i965)
+    // can write its own headers and there is no metadata to include.
+    ctx->desired_packed_headers = 0;
 
     // Surfaces must be aligned to superblock boundaries.
     ctx->surface_width  = FFALIGN(avctx->width,  64);
@@ -268,6 +243,7 @@ static av_cold int vaapi_encode_vp9_init(AVCodecContext *avctx)
 #define OFFSET(x) offsetof(VAAPIEncodeVP9Context, x)
 #define FLAGS (AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM)
 static const AVOption vaapi_encode_vp9_options[] = {
+    VAAPI_ENCODE_COMMON_OPTIONS,
     { "loop_filter_level", "Loop filter level",
       OFFSET(loop_filter_level), AV_OPT_TYPE_INT, { .i64 = 16 }, 0, 63, FLAGS },
     { "loop_filter_sharpness", "Loop filter sharpness",
@@ -276,11 +252,12 @@ static const AVOption vaapi_encode_vp9_options[] = {
 };
 
 static const AVCodecDefault vaapi_encode_vp9_defaults[] = {
-    { "profile",        "0"   },
     { "b",              "0"   },
     { "bf",             "0"   },
     { "g",              "250" },
     { "global_quality", "100" },
+    { "qmin",           "-1"  },
+    { "qmax",           "-1"  },
     { NULL },
 };
 

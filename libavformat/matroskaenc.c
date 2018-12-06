@@ -1238,21 +1238,38 @@ static int mkv_write_track(AVFormatContext *s, MatroskaMuxContext *mkv,
     if (st->disposition & AV_DISPOSITION_FORCED)
         put_ebml_uint(pb, MATROSKA_ID_TRACKFLAGFORCED, 1);
 
-    if (mkv->mode == MODE_WEBM && par->codec_id == AV_CODEC_ID_WEBVTT) {
+    if (mkv->mode == MODE_WEBM) {
         const char *codec_id;
-        if (st->disposition & AV_DISPOSITION_CAPTIONS) {
-            codec_id = "D_WEBVTT/CAPTIONS";
-            native_id = MATROSKA_TRACK_TYPE_SUBTITLE;
-        } else if (st->disposition & AV_DISPOSITION_DESCRIPTIONS) {
-            codec_id = "D_WEBVTT/DESCRIPTIONS";
-            native_id = MATROSKA_TRACK_TYPE_METADATA;
-        } else if (st->disposition & AV_DISPOSITION_METADATA) {
-            codec_id = "D_WEBVTT/METADATA";
-            native_id = MATROSKA_TRACK_TYPE_METADATA;
-        } else {
-            codec_id = "D_WEBVTT/SUBTITLES";
-            native_id = MATROSKA_TRACK_TYPE_SUBTITLE;
+        if (par->codec_type != AVMEDIA_TYPE_SUBTITLE) {
+            for (j = 0; ff_webm_codec_tags[j].id != AV_CODEC_ID_NONE; j++) {
+                if (ff_webm_codec_tags[j].id == par->codec_id) {
+                    codec_id = ff_webm_codec_tags[j].str;
+                    native_id = 1;
+                    break;
+                }
+            }
+        } else if (par->codec_id == AV_CODEC_ID_WEBVTT) {
+            if (st->disposition & AV_DISPOSITION_CAPTIONS) {
+                codec_id = "D_WEBVTT/CAPTIONS";
+                native_id = MATROSKA_TRACK_TYPE_SUBTITLE;
+            } else if (st->disposition & AV_DISPOSITION_DESCRIPTIONS) {
+                codec_id = "D_WEBVTT/DESCRIPTIONS";
+                native_id = MATROSKA_TRACK_TYPE_METADATA;
+            } else if (st->disposition & AV_DISPOSITION_METADATA) {
+                codec_id = "D_WEBVTT/METADATA";
+                native_id = MATROSKA_TRACK_TYPE_METADATA;
+            } else {
+                codec_id = "D_WEBVTT/SUBTITLES";
+                native_id = MATROSKA_TRACK_TYPE_SUBTITLE;
+            }
         }
+
+        if (!native_id) {
+            av_log(s, AV_LOG_ERROR,
+                   "Only VP8 or VP9 or AV1 video and Vorbis or Opus audio and WebVTT subtitles are supported for WebM.\n");
+            return AVERROR(EINVAL);
+        }
+
         put_ebml_string(pb, MATROSKA_ID_CODECID, codec_id);
     } else {
         // look for a codec ID string specific to mkv to use,
@@ -1292,16 +1309,6 @@ static int mkv_write_track(AVFormatContext *s, MatroskaMuxContext *mkv,
     }
     if (par->codec_id == AV_CODEC_ID_OPUS) {
         put_ebml_uint(pb, MATROSKA_ID_SEEKPREROLL, OPUS_SEEK_PREROLL);
-    }
-
-    if (mkv->mode == MODE_WEBM && !(par->codec_id == AV_CODEC_ID_VP8 ||
-                                    par->codec_id == AV_CODEC_ID_VP9 ||
-                                    par->codec_id == AV_CODEC_ID_OPUS ||
-                                    par->codec_id == AV_CODEC_ID_VORBIS ||
-                                    par->codec_id == AV_CODEC_ID_WEBVTT)) {
-        av_log(s, AV_LOG_ERROR,
-               "Only VP8 or VP9 video and Vorbis or Opus audio and WebVTT subtitles are supported for WebM.\n");
-        return AVERROR(EINVAL);
     }
 
     switch (par->codec_type) {
@@ -2005,6 +2012,13 @@ static int mkv_write_header(AVFormatContext *s)
         ret = AVERROR(ENOMEM);
         goto fail;
     }
+
+    if (s->metadata_header_padding > 0) {
+        if (s->metadata_header_padding == 1)
+            s->metadata_header_padding++;
+        put_ebml_void(pb, s->metadata_header_padding);
+    }
+
     if ((pb->seekable & AVIO_SEEKABLE_NORMAL) && mkv->reserve_cues_space) {
         mkv->cues_pos = avio_tell(pb);
         if (mkv->reserve_cues_space == 1)
@@ -2679,6 +2693,16 @@ static int mkv_query_codec(enum AVCodecID codec_id, int std_compliance)
     return 0;
 }
 
+static int webm_query_codec(enum AVCodecID codec_id, int std_compliance)
+{
+    int i;
+    for (i = 0; ff_webm_codec_tags[i].id != AV_CODEC_ID_NONE; i++)
+        if (ff_webm_codec_tags[i].id == codec_id)
+            return 1;
+
+    return 0;
+}
+
 static int mkv_init(struct AVFormatContext *s)
 {
     int i;
@@ -2734,7 +2758,6 @@ static int mkv_check_bitstream(struct AVFormatContext *s, const AVPacket *pkt)
 
 static const AVCodecTag additional_audio_tags[] = {
     { AV_CODEC_ID_ALAC,      0XFFFFFFFF },
-    { AV_CODEC_ID_EAC3,      0XFFFFFFFF },
     { AV_CODEC_ID_MLP,       0xFFFFFFFF },
     { AV_CODEC_ID_OPUS,      0xFFFFFFFF },
     { AV_CODEC_ID_PCM_S16BE, 0xFFFFFFFF },
@@ -2753,8 +2776,6 @@ static const AVCodecTag additional_video_tags[] = {
     { AV_CODEC_ID_RV10,      0xFFFFFFFF },
     { AV_CODEC_ID_RV20,      0xFFFFFFFF },
     { AV_CODEC_ID_RV30,      0xFFFFFFFF },
-    { AV_CODEC_ID_RV40,      0xFFFFFFFF },
-    { AV_CODEC_ID_VP9,       0xFFFFFFFF },
     { AV_CODEC_ID_NONE,      0xFFFFFFFF }
 };
 
@@ -2834,6 +2855,7 @@ AVOutputFormat ff_webm_muxer = {
     .write_header      = mkv_write_header,
     .write_packet      = mkv_write_flush_packet,
     .write_trailer     = mkv_write_trailer,
+    .query_codec       = webm_query_codec,
     .check_bitstream   = mkv_check_bitstream,
     .flags             = AVFMT_GLOBALHEADER | AVFMT_VARIABLE_FPS |
                          AVFMT_TS_NONSTRICT | AVFMT_ALLOW_FLUSH,

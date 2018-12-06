@@ -402,7 +402,7 @@ static int mpeg4_decode_sprite_trajectory(Mpeg4DecContext *ctx, GetBitContext *g
                 llabs(sprite_offset[0][i] + sprite_delta[i][1] * (h+16LL)) >= INT_MAX ||
                 llabs(sprite_offset[0][i] + sprite_delta[i][0] * (w+16LL) + sprite_delta[i][1] * (h+16LL)) >= INT_MAX ||
                 llabs(sprite_delta[i][0] * (w+16LL)) >= INT_MAX ||
-                llabs(sprite_delta[i][1] * (w+16LL)) >= INT_MAX ||
+                llabs(sprite_delta[i][1] * (h+16LL)) >= INT_MAX ||
                 llabs(sd[0]) >= INT_MAX ||
                 llabs(sd[1]) >= INT_MAX ||
                 llabs(sprite_offset[0][i] + sd[0] * (w+16LL)) >= INT_MAX ||
@@ -598,7 +598,7 @@ static inline int get_amv(Mpeg4DecContext *ctx, int n)
         len >>= s->quarter_sample;
 
     if (s->real_sprite_warping_points == 1) {
-        if (ctx->divx_version == 500 && ctx->divx_build == 413)
+        if (ctx->divx_version == 500 && ctx->divx_build == 413 && a >= s->quarter_sample)
             sum = s->sprite_offset[0][n] / (1 << (a - s->quarter_sample));
         else
             sum = RSHIFT(s->sprite_offset[0][n] * (1 << s->quarter_sample), a);
@@ -1968,6 +1968,10 @@ static int mpeg4_decode_dpcm_macroblock(MpegEncContext *s, int16_t macroblock[25
             if (rice_prefix_code == 11)
                 dpcm_residual = get_bits(&s->gb, s->avctx->bits_per_raw_sample);
             else {
+                if (rice_prefix_code == 12) {
+                    av_log(s->avctx, AV_LOG_ERROR, "Forbidden rice_prefix_code\n");
+                    return AVERROR_INVALIDDATA;
+                }
                 rice_suffix_code = get_bitsz(&s->gb, rice_parameter);
                 dpcm_residual = (rice_prefix_code << rice_parameter) + rice_suffix_code;
             }
@@ -3052,6 +3056,7 @@ static int decode_studio_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
     if (get_bits_left(gb) <= 32)
         return 0;
 
+    s->partitioned_frame = 0;
     s->decode_mb = mpeg4_decode_studio_mb;
 
     decode_smpte_tc(ctx, gb);
