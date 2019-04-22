@@ -8,13 +8,14 @@
 
 #enable necessary codecs
 --enable-avcodec
---enable-gpl
+#--enable-gpl
 --enable-decoder=h264
---enable-libx264
---enable-encoder=libx264
+#--enable-libx264
+#--enable-encoder=libx264
 --enable-decoder=mjpeg
 --enable-encoder=mjpeg
 
+#enable the software rescaling
 --enable-swscale
 
 #enable necessary formats
