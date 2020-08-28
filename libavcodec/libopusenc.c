@@ -345,6 +345,17 @@ static av_cold int libopus_encode_init(AVCodecContext *avctx)
                opus_vorbis_channel_map[avctx->channels - 1],
                avctx->channels * sizeof(*libopus_channel_mapping));
 
+#if 0
+        fprintf(stderr,"------------------------------------\n");
+        fprintf(stderr,"      avctx->sample_rate: %d\n",avctx->sample_rate);
+        fprintf(stderr,"         avctx->channels: %d\n",avctx->channels);
+        fprintf(stderr,"     avctx->stream_count: %d\n",opus->stream_count);
+        fprintf(stderr,"           avctx->cutoff: %d\n",avctx->cutoff);
+        fprintf(stderr,"    coupled_stream_count: %d\n",coupled_stream_count);
+        fprintf(stderr,"  opus->opts.application: %d\n",opus->opts.application);
+        fprintf(stderr,"opus->opts.max_bandwidth: %d\n",opus->opts.max_bandwidth1);
+        fprintf(stderr,"------------------------------------\n");
+#endif
         enc = opus_multistream_encoder_create(
             avctx->sample_rate, avctx->channels, opus->stream_count,
             coupled_stream_count,

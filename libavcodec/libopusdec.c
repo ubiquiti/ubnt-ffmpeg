@@ -68,6 +68,7 @@ static av_cold int libopus_decode_init(AVCodecContext *avc)
 
     if (avc->extradata_size >= OPUS_HEAD_SIZE) {
         opus->pre_skip = AV_RL16(avc->extradata + 10);
+        avc->sample_rate    = AV_RL32(avc->extradata + 12);
         gain_db     = sign_extend(AV_RL16(avc->extradata + 16), 16);
         channel_map = AV_RL8 (avc->extradata + 18);
     }

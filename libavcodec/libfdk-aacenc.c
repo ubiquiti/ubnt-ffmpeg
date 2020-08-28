@@ -311,8 +311,8 @@ static av_cold int aac_encode_init(AVCodecContext *avctx)
     }
 
     if ((err = aacEncEncode(s->handle, NULL, NULL, NULL, NULL)) != AACENC_OK) {
-        av_log(avctx, AV_LOG_ERROR, "Unable to initialize the encoder: %s\n",
-               aac_get_error(err));
+        av_log(avctx, AV_LOG_ERROR, "Unable to initialize the encoder. Error was: 0x%08x: %s\n",
+            err, aac_get_error(err));
         return AVERROR(EINVAL);
     }
 
