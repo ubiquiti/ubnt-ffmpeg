@@ -9,13 +9,13 @@ make
 DST_PORT=9999
 SAVE_FILE=yes
 
-BITRATE=24000
-CHANNELS=1
-RATE=8000
+BITRATE=128000
+# CHANNELS=1
+# RATE=8000
 
 CODEC=opus
 
-INPUT_FILE=$(realpath ~/work/media/mp4/nikita1.mp4)
+INPUT_FILE=$(realpath ~/work/media/mp4/cabron1.mp4)
 INPUT_SETTINGS="-y -i ${INPUT_FILE} -vn"
 REAL_TIME_INPUT_SETTINGS="-re ${INPUT_SETTINGS}"
 
