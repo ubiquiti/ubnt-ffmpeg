@@ -17,6 +17,7 @@
  */
 
 #include "libavutil/channel_layout.h"
+#include "libavutil/ffmath.h"
 #include "libavutil/opt.h"
 #include "avfilter.h"
 #include "audio.h"
@@ -27,6 +28,7 @@ typedef struct CrossfeedContext {
 
     double range;
     double strength;
+    double slope;
     double level_in;
     double level_out;
 
@@ -57,11 +59,11 @@ static int config_input(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
     CrossfeedContext *s = ctx->priv;
-    double A = exp(s->strength * -30 / 40 * log(10.));
+    double A = ff_exp10(s->strength * -30 / 40);
     double w0 = 2 * M_PI * (1. - s->range) * 2100 / inlink->sample_rate;
     double alpha;
 
-    alpha = sin(w0) / 2 * sqrt(2 * (1 / 0.5 - 1) + 2);
+    alpha = sin(w0) / 2 * sqrt((A + 1 / A) * (1 / s->slope - 1) + 2);
 
     s->a0 =          (A + 1) + (A - 1) * cos(w0) + 2 * sqrt(A) * alpha;
     s->a1 =    -2 * ((A - 1) + (A + 1) * cos(w0));
@@ -118,8 +120,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         s->o2 = s->o1;
         s->o1 = oside;
 
-        dst[0] = (mid + oside) * level_out;
-        dst[1] = (mid - oside) * level_out;
+        if (ctx->is_disabled) {
+            dst[0] = src[0];
+            dst[1] = src[1];
+        } else {
+            dst[0] = (mid + oside) * level_out;
+            dst[1] = (mid - oside) * level_out;
+        }
     }
 
     if (out != in)
@@ -127,12 +134,25 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     return ff_filter_frame(outlink, out);
 }
 
+static int process_command(AVFilterContext *ctx, const char *cmd, const char *args,
+                           char *res, int res_len, int flags)
+{
+    int ret;
+
+    ret = ff_filter_process_command(ctx, cmd, args, res, res_len, flags);
+    if (ret < 0)
+        return ret;
+
+    return config_input(ctx->inputs[0]);
+}
+
 #define OFFSET(x) offsetof(CrossfeedContext, x)
-#define FLAGS AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
+#define FLAGS AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_RUNTIME_PARAM
 
 static const AVOption crossfeed_options[] = {
     { "strength",  "set crossfeed strength",  OFFSET(strength),  AV_OPT_TYPE_DOUBLE, {.dbl=.2}, 0, 1, FLAGS },
     { "range",     "set soundstage wideness", OFFSET(range),     AV_OPT_TYPE_DOUBLE, {.dbl=.5}, 0, 1, FLAGS },
+    { "slope",     "set curve slope",         OFFSET(slope),     AV_OPT_TYPE_DOUBLE, {.dbl=.5}, .01, 1, FLAGS },
     { "level_in",  "set level in",            OFFSET(level_in),  AV_OPT_TYPE_DOUBLE, {.dbl=.9}, 0, 1, FLAGS },
     { "level_out", "set level out",           OFFSET(level_out), AV_OPT_TYPE_DOUBLE, {.dbl=1.}, 0, 1, FLAGS },
     { NULL }
@@ -166,4 +186,6 @@ AVFilter ff_af_crossfeed = {
     .priv_class     = &crossfeed_class,
     .inputs         = inputs,
     .outputs        = outputs,
+    .flags          = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL,
+    .process_command = process_command,
 };

@@ -212,7 +212,7 @@ static char *extradata2psets(AVFormatContext *s, AVCodecParameters *par)
         p += strlen(p);
         r = r1;
     }
-    if (sps && sps_end - sps >= 4) {
+    if (sps && sps_end - sps >= 4 && p - psets <= MAX_PSET_SIZE - strlen(profile_string) - 7) {
         memcpy(p, profile_string, strlen(profile_string));
         p += strlen(p);
         ff_data_to_hex(p, sps + 1, 3, 0);
@@ -347,7 +347,8 @@ static char *extradata2config(AVFormatContext *s, AVCodecParameters *par)
 
 static char *xiph_extradata2config(AVFormatContext *s, AVCodecParameters *par)
 {
-    char *config, *encoded_config;
+    uint8_t *config;
+    char *encoded_config;
     const uint8_t *header_start[3];
     int headers_len, header_len[3], config_len;
     int first_header_size;

@@ -222,6 +222,7 @@ typedef struct ProresThreadData {
     DECLARE_ALIGNED(16, int16_t, blocks)[MAX_PLANES][64 * 4 * MAX_MBS_PER_SLICE];
     DECLARE_ALIGNED(16, uint16_t, emu_buf)[16 * 16];
     int16_t custom_q[64];
+    int16_t custom_chroma_q[64];
     struct TrellisNode *nodes;
 } ProresThreadData;
 
@@ -232,6 +233,7 @@ typedef struct ProresContext {
     int16_t quants[MAX_STORED_Q][64];
     int16_t quants_chroma[MAX_STORED_Q][64];
     int16_t custom_q[64];
+    int16_t custom_chroma_q[64];
     const uint8_t *quant_mat;
     const uint8_t *quant_chroma_mat;
     const uint8_t *scantable;
@@ -574,7 +576,7 @@ static int encode_slice(AVCodecContext *avctx, const AVFrame *pic,
         qmat_chroma = ctx->quants_chroma[quant];
     } else {
         qmat = ctx->custom_q;
-        qmat_chroma = ctx->custom_q;
+        qmat_chroma = ctx->custom_chroma_q;
         for (i = 0; i < 64; i++) {
             qmat[i] = ctx->quant_mat[i] * quant;
             qmat_chroma[i] = ctx->quant_chroma_mat[i] * quant;
@@ -902,7 +904,7 @@ static int find_slice_quant(AVCodecContext *avctx,
                 qmat_chroma = ctx->quants_chroma[q];
             } else {
                 qmat = td->custom_q;
-                qmat_chroma = td->custom_q;
+                qmat_chroma = td->custom_chroma_q;
                 for (i = 0; i < 64; i++) {
                     qmat[i] = ctx->quant_mat[i] * q;
                     qmat_chroma[i] = ctx->quant_chroma_mat[i] * q;
@@ -1388,7 +1390,7 @@ static const AVOption options[] = {
     { "4444xq",        NULL, 0, AV_OPT_TYPE_CONST, { .i64 = PRORES_PROFILE_4444XQ },
         0, 0, VE, "profile" },
     { "vendor", "vendor ID", OFFSET(vendor),
-        AV_OPT_TYPE_STRING, { .str = "Lavc" }, CHAR_MIN, CHAR_MAX, VE },
+        AV_OPT_TYPE_STRING, { .str = "Lavc" }, 0, 0, VE },
     { "bits_per_mb", "desired bits per macroblock", OFFSET(bits_per_mb),
         AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8192, VE },
     { "quant_mat", "quantiser matrix", OFFSET(quant_sel), AV_OPT_TYPE_INT,
@@ -1426,7 +1428,7 @@ AVCodec ff_prores_ks_encoder = {
     .init           = encode_init,
     .close          = encode_close,
     .encode2        = encode_frame,
-    .capabilities   = AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS | AV_CODEC_CAP_INTRA_ONLY,
+    .capabilities   = AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS,
     .pix_fmts       = (const enum AVPixelFormat[]) {
                           AV_PIX_FMT_YUV422P10, AV_PIX_FMT_YUV444P10,
                           AV_PIX_FMT_YUVA444P10, AV_PIX_FMT_NONE

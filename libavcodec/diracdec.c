@@ -136,7 +136,6 @@ typedef struct DiracContext {
     MpegvideoEncDSPContext mpvencdsp;
     VideoDSPContext vdsp;
     DiracDSPContext diracdsp;
-    DiracGolombLUT *reader_ctx;
     DiracVersionInfo version;
     GetBitContext gb;
     AVDiracSeqHeader seq;
@@ -395,7 +394,6 @@ static av_cold int dirac_decode_init(AVCodecContext *avctx)
     s->threads_num_buf = -1;
     s->thread_buf_size = -1;
 
-    ff_dirac_golomb_reader_init(&s->reader_ctx);
     ff_diracdsp_init(&s->diracdsp);
     ff_mpegvideoencdsp_init(&s->mpvencdsp, avctx);
     ff_videodsp_init(&s->vdsp, 8);
@@ -427,8 +425,6 @@ static av_cold int dirac_decode_end(AVCodecContext *avctx)
 {
     DiracContext *s = avctx->priv_data;
     int i;
-
-    ff_dirac_golomb_reader_end(&s->reader_ctx);
 
     dirac_decode_flush(avctx);
     for (i = 0; i < MAX_FRAMES; i++)
@@ -537,6 +533,8 @@ static inline int codeblock(DiracContext *s, SubBand *b,
     buf = b->ibuf + top * b->stride;
     if (is_arith) {
         for (y = top; y < bottom; y++) {
+            if (c->error)
+                return c->error;
             for (x = left; x < right; x++) {
                 if (b->pshift) {
                     coeff_unpack_arith_10(c, qfactor, qoffset, b, (int32_t*)(buf)+x, x, y);
@@ -683,7 +681,10 @@ static int decode_component(DiracContext *s, int comp)
                 }
                 align_get_bits(&s->gb);
                 b->coeff_data = s->gb.buffer + get_bits_count(&s->gb)/8;
-                b->length = FFMIN(b->length, FFMAX(get_bits_left(&s->gb)/8, 0));
+                if (b->length > FFMAX(get_bits_left(&s->gb)/8, 0)) {
+                    b->length = FFMAX(get_bits_left(&s->gb)/8, 0);
+                    damaged_count ++;
+                }
                 skip_bits_long(&s->gb, b->length*8);
             }
         }
@@ -876,11 +877,11 @@ static int decode_hq_slice(DiracContext *s, DiracSlice *slice, uint8_t *tmp_buf)
         coef_num = subband_coeffs(s, slice->slice_x, slice->slice_y, i, coeffs_num);
 
         if (s->pshift)
-            coef_par = ff_dirac_golomb_read_32bit(s->reader_ctx, addr,
-                                                  length, tmp_buf, coef_num);
+            coef_par = ff_dirac_golomb_read_32bit(addr, length,
+                                                  tmp_buf, coef_num);
         else
-            coef_par = ff_dirac_golomb_read_16bit(s->reader_ctx, addr,
-                                                  length, tmp_buf, coef_num);
+            coef_par = ff_dirac_golomb_read_16bit(addr, length,
+                                                  tmp_buf, coef_num);
 
         if (coef_num > coef_par) {
             const int start_b = coef_par * (1 << (s->pshift + 1));
@@ -1271,7 +1272,9 @@ static int dirac_unpack_idwt_params(DiracContext *s)
         s->num_y        = get_interleaved_ue_golomb(gb);
         if (s->num_x * s->num_y == 0 || s->num_x * (uint64_t)s->num_y > INT_MAX ||
             s->num_x * (uint64_t)s->avctx->width  > INT_MAX ||
-            s->num_y * (uint64_t)s->avctx->height > INT_MAX
+            s->num_y * (uint64_t)s->avctx->height > INT_MAX ||
+            s->num_x > s->avctx->width ||
+            s->num_y > s->avctx->height
         ) {
             av_log(s->avctx,AV_LOG_ERROR,"Invalid numx/y\n");
             s->num_x = s->num_y = 0;
@@ -1427,9 +1430,9 @@ static void global_mv(DiracContext *s, DiracBlock *block, int x, int y, int ref)
     int *b      = s->globalmc[ref].pan_tilt;
     int *c      = s->globalmc[ref].perspective;
 
-    int m       = (1<<ep) - (c[0]*x + c[1]*y);
-    int64_t mx  = m * (int64_t)((A[0][0] * (int64_t)x + A[0][1]*(int64_t)y) + (1<<ez) * b[0]);
-    int64_t my  = m * (int64_t)((A[1][0] * (int64_t)x + A[1][1]*(int64_t)y) + (1<<ez) * b[1]);
+    int64_t m   = (1<<ep) - (c[0]*(int64_t)x + c[1]*(int64_t)y);
+    int64_t mx  = m * (int64_t)((A[0][0] * (int64_t)x + A[0][1]*(int64_t)y) + (1LL<<ez) * b[0]);
+    int64_t my  = m * (int64_t)((A[1][0] * (int64_t)x + A[1][1]*(int64_t)y) + (1LL<<ez) * b[1]);
 
     block->u.mv[ref][0] = (mx + (1<<(ez+ep))) >> (ez+ep);
     block->u.mv[ref][1] = (my + (1<<(ez+ep))) >> (ez+ep);
@@ -1545,6 +1548,11 @@ static int dirac_unpack_block_motion_data(DiracContext *s)
                     propagate_block_data(block, s->blwidth, step);
                 }
         }
+
+    for (i = 0; i < 4 + 2*s->num_refs; i++) {
+        if (arith[i].error)
+            return arith[i].error;
+    }
 
     return 0;
 }
@@ -2135,7 +2143,7 @@ static int dirac_decode_data_unit(AVCodecContext *avctx, const uint8_t *buf, int
             return ret;
         }
 
-        if (CALC_PADDING((int64_t)dsh->width, MAX_DWT_LEVELS) * CALC_PADDING((int64_t)dsh->height, MAX_DWT_LEVELS) > avctx->max_pixels)
+        if (CALC_PADDING((int64_t)dsh->width, MAX_DWT_LEVELS) * CALC_PADDING((int64_t)dsh->height, MAX_DWT_LEVELS) * 5LL > avctx->max_pixels)
             ret = AVERROR(ERANGE);
         if (ret >= 0)
             ret = ff_set_dimensions(avctx, dsh->width, dsh->height);

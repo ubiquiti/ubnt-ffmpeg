@@ -99,7 +99,6 @@ const AVProfile ff_mpeg2_video_profiles[] = {
     { FF_PROFILE_MPEG2_MAIN,         "Main"               },
     { FF_PROFILE_MPEG2_SIMPLE,       "Simple"             },
     { FF_PROFILE_RESERVED,           "Reserved"           },
-    { FF_PROFILE_RESERVED,           "Reserved"           },
     { FF_PROFILE_UNKNOWN                                  },
 };
 
@@ -167,6 +166,12 @@ const AVProfile ff_mjpeg_profiles[] = {
     { FF_PROFILE_MJPEG_HUFFMAN_PROGRESSIVE_DCT,         "Progressive" },
     { FF_PROFILE_MJPEG_HUFFMAN_LOSSLESS,                "Lossless"    },
     { FF_PROFILE_MJPEG_JPEG_LS,                         "JPEG LS"     },
+    { FF_PROFILE_UNKNOWN }
+};
+
+const AVProfile ff_arib_caption_profiles[] = {
+    { FF_PROFILE_ARIB_PROFILE_A, "Profile A" },
+    { FF_PROFILE_ARIB_PROFILE_C, "Profile C" },
     { FF_PROFILE_UNKNOWN }
 };
 

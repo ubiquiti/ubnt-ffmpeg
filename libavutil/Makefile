@@ -23,6 +23,7 @@ HEADERS = adler32.h                                                     \
           des.h                                                         \
           dict.h                                                        \
           display.h                                                     \
+          dovi_meta.h                                                   \
           downmix_info.h                                                \
           encryption_info.h                                             \
           error.h                                                       \
@@ -31,6 +32,7 @@ HEADERS = adler32.h                                                     \
           file.h                                                        \
           frame.h                                                       \
           hash.h                                                        \
+          hdr_dynamic_metadata.h                                        \
           hmac.h                                                        \
           hwcontext.h                                                   \
           hwcontext_cuda.h                                              \
@@ -39,9 +41,11 @@ HEADERS = adler32.h                                                     \
           hwcontext_dxva2.h                                             \
           hwcontext_qsv.h                                               \
           hwcontext_mediacodec.h                                        \
+          hwcontext_opencl.h                                            \
           hwcontext_vaapi.h                                             \
           hwcontext_videotoolbox.h                                      \
           hwcontext_vdpau.h                                             \
+          hwcontext_vulkan.h                                            \
           imgutils.h                                                    \
           intfloat.h                                                    \
           intreadwrite.h                                                \
@@ -76,8 +80,10 @@ HEADERS = adler32.h                                                     \
           tree.h                                                        \
           twofish.h                                                     \
           version.h                                                     \
+          video_enc_params.h                                            \
           xtea.h                                                        \
           tea.h                                                         \
+          tx.h                                                          \
 
 HEADERS-$(CONFIG_LZO)                   += lzo.h
 
@@ -108,6 +114,7 @@ OBJS = adler32.o                                                        \
        des.o                                                            \
        dict.o                                                           \
        display.o                                                        \
+       dovi_meta.o                                                      \
        downmix_info.o                                                   \
        encryption_info.o                                                \
        error.o                                                          \
@@ -119,6 +126,7 @@ OBJS = adler32.o                                                        \
        fixed_dsp.o                                                      \
        frame.o                                                          \
        hash.o                                                           \
+       hdr_dynamic_metadata.o                                           \
        hmac.o                                                           \
        hwcontext.o                                                      \
        imgutils.o                                                       \
@@ -157,8 +165,14 @@ OBJS = adler32.o                                                        \
        xga_font_data.o                                                  \
        xtea.o                                                           \
        tea.o                                                            \
+       tx.o                                                             \
+       tx_float.o                                                       \
+       tx_double.o                                                      \
+       tx_int32.o                                                       \
+       video_enc_params.o                                               \
 
-OBJS-$(CONFIG_CUDA)                     += hwcontext_cuda.o cuda_check.o
+
+OBJS-$(CONFIG_CUDA)                     += hwcontext_cuda.o
 OBJS-$(CONFIG_D3D11VA)                  += hwcontext_d3d11va.o
 OBJS-$(CONFIG_DXVA2)                    += hwcontext_dxva2.o
 OBJS-$(CONFIG_LIBDRM)                   += hwcontext_drm.o
@@ -169,6 +183,7 @@ OBJS-$(CONFIG_QSV)                      += hwcontext_qsv.o
 OBJS-$(CONFIG_VAAPI)                    += hwcontext_vaapi.o
 OBJS-$(CONFIG_VIDEOTOOLBOX)             += hwcontext_videotoolbox.o
 OBJS-$(CONFIG_VDPAU)                    += hwcontext_vdpau.o
+OBJS-$(CONFIG_VULKAN)                   += hwcontext_vulkan.o
 
 OBJS += $(COMPAT_OBJS:%=../compat/%)
 
@@ -185,6 +200,7 @@ SKIPHEADERS-$(CONFIG_OPENCL)           += hwcontext_opencl.h
 SKIPHEADERS-$(CONFIG_VAAPI)            += hwcontext_vaapi.h
 SKIPHEADERS-$(CONFIG_VIDEOTOOLBOX)     += hwcontext_videotoolbox.h
 SKIPHEADERS-$(CONFIG_VDPAU)            += hwcontext_vdpau.h
+SKIPHEADERS-$(CONFIG_VULKAN)           += hwcontext_vulkan.h
 
 TESTPROGS = adler32                                                     \
             aes                                                         \

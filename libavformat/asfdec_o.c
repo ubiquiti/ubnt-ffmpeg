@@ -147,7 +147,7 @@ typedef struct ASFContext {
 static int detect_unknown_subobject(AVFormatContext *s, int64_t offset, int64_t size);
 static const GUIDParseTable *find_guid(ff_asf_guid guid);
 
-static int asf_probe(AVProbeData *pd)
+static int asf_probe(const AVProbeData *pd)
 {
     /* check file header */
     if (!ff_guidcmp(pd->buf, &ff_asf_header))
@@ -461,8 +461,8 @@ static void get_id3_tag(AVFormatContext *s, int len)
 
     ff_id3v2_read(s, ID3v2_DEFAULT_MAGIC, &id3v2_extra_meta, len);
     if (id3v2_extra_meta) {
-        ff_id3v2_parse_apic(s, &id3v2_extra_meta);
-        ff_id3v2_parse_chapters(s, &id3v2_extra_meta);
+        ff_id3v2_parse_apic(s, id3v2_extra_meta);
+        ff_id3v2_parse_chapters(s, id3v2_extra_meta);
     }
     ff_id3v2_free_extra_meta(&id3v2_extra_meta);
 }
@@ -1165,7 +1165,7 @@ static int asf_read_replicated_data(AVFormatContext *s, ASFPacket *asf_pkt)
     } else
         avio_skip(pb, 4); // reading of media object size is already done
     asf_pkt->dts = avio_rl32(pb); // read presentation time
-    if (asf->rep_data_len && (asf->rep_data_len >= 8))
+    if (asf->rep_data_len >= 8)
         avio_skip(pb, asf->rep_data_len - 8); // skip replicated data
 
     return 0;

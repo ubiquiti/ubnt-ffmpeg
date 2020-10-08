@@ -22,11 +22,8 @@
 
 #define MAX_SLICES 8
 
-// ./fate 2 ./crew_cif out.y4m
-
 #include "config.h"
 
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,8 +118,8 @@ int main(int argc, char **argv)
     int nals = 0, ret = 0;
     char *p;
 
-    if (argc < 4) {
-        fprintf(stderr, "Usage: %s <threads> <input file> <output file>\n", argv[0]);
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <threads> <input file>\n", argv[0]);
         return -1;
     }
 

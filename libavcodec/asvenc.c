@@ -173,10 +173,7 @@ static inline int encode_mb(ASV1Context *a, int16_t block[6][64])
 {
     int i;
 
-    if (a->pb.buf_end - a->pb.buf - (put_bits_count(&a->pb) >> 3) < MAX_MB_SIZE) {
-        av_log(a->avctx, AV_LOG_ERROR, "encoded frame too large\n");
-        return -1;
-    }
+    av_assert0(a->pb.buf_end - a->pb.buf - (put_bits_count(&a->pb) >> 3) >= MAX_MB_SIZE);
 
     if (a->avctx->codec_id == AV_CODEC_ID_ASV1) {
         for (i = 0; i < 6; i++)
@@ -231,7 +228,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         clone->format = pict->format;
         clone->width  = FFALIGN(pict->width, 16);
         clone->height = FFALIGN(pict->height, 16);
-        ret = av_frame_get_buffer(clone, 32);
+        ret = av_frame_get_buffer(clone, 0);
         if (ret < 0) {
             av_frame_free(&clone);
             return ret;

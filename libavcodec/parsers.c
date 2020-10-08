@@ -40,12 +40,15 @@ extern AVCodecParser ff_dvbsub_parser;
 extern AVCodecParser ff_dvdsub_parser;
 extern AVCodecParser ff_dvd_nav_parser;
 extern AVCodecParser ff_flac_parser;
+extern AVCodecParser ff_g723_1_parser;
 extern AVCodecParser ff_g729_parser;
+extern AVCodecParser ff_gif_parser;
 extern AVCodecParser ff_gsm_parser;
 extern AVCodecParser ff_h261_parser;
 extern AVCodecParser ff_h263_parser;
 extern AVCodecParser ff_h264_parser;
 extern AVCodecParser ff_hevc_parser;
+extern AVCodecParser ff_jpeg2000_parser;
 extern AVCodecParser ff_mjpeg_parser;
 extern AVCodecParser ff_mlp_parser;
 extern AVCodecParser ff_mpeg4video_parser;
@@ -64,6 +67,7 @@ extern AVCodecParser ff_vorbis_parser;
 extern AVCodecParser ff_vp3_parser;
 extern AVCodecParser ff_vp8_parser;
 extern AVCodecParser ff_vp9_parser;
+extern AVCodecParser ff_webp_parser;
 extern AVCodecParser ff_xma_parser;
 
 #include "libavcodec/parser_list.c"

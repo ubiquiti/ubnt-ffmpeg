@@ -289,9 +289,7 @@ static int rtsp_read_setup(AVFormatContext *s, char* host, char *controlurl)
     } else {
         do {
             AVDictionary *opts = NULL;
-            char buf[256];
-            snprintf(buf, sizeof(buf), "%d", rt->buffer_size);
-            av_dict_set(&opts, "buffer_size", buf, 0);
+            av_dict_set_int(&opts, "buffer_size", rt->buffer_size, 0);
             ff_url_join(url, sizeof(url), "rtp", NULL, host, localport, NULL);
             av_log(s, AV_LOG_TRACE, "Opening: %s", url);
             ret = ffurl_open_whitelist(&rtsp_st->rtp_handle, url, AVIO_FLAG_READ_WRITE,
@@ -699,7 +697,7 @@ static int rtsp_listen(AVFormatContext *s)
     }
 }
 
-static int rtsp_probe(AVProbeData *p)
+static int rtsp_probe(const AVProbeData *p)
 {
     if (
 #if CONFIG_TLS_PROTOCOL
