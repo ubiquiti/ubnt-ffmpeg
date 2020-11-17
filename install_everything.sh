@@ -3,7 +3,7 @@
 
 set -e
 
-DEST_FOLDER=${LOCAL_PREFIX}/ffmpeg_install
+DEST_FOLDER=${LOCAL_PREFIX}
 
 ./configure \
 	--prefix=${DEST_FOLDER} \
