@@ -58,8 +58,9 @@ typedef struct GIFContext {
 } GIFContext;
 
 enum {
-    GF_OFFSETTING = 1<<0,
-    GF_TRANSDIFF  = 1<<1,
+    GF_OFFSETTING      = 1<<0,
+    GF_TRANSDIFF       = 1<<1,
+    GF_LAST_FRAME_COPY = 1<<2,
 };
 
 static int is_image_translucent(AVCodecContext *avctx,
@@ -259,7 +260,7 @@ static int gif_image_write_image(AVCodecContext *avctx,
                                  uint8_t **bytestream, uint8_t *end,
                                  const uint32_t *palette,
                                  const uint8_t *buf, const int linesize,
-                                 AVPacket *pkt)
+                                 AVPacket *pkt, int64_t delay)
 {
     GIFContext *s = avctx->priv_data;
     int disposal, len = 0, height = avctx->height, width = avctx->width, x, y;
@@ -319,7 +320,7 @@ static int gif_image_write_image(AVCodecContext *avctx,
     bytestream_put_byte(bytestream, GIF_GCE_EXT_LABEL);
     bytestream_put_byte(bytestream, 0x04); /* block size */
     bytestream_put_byte(bytestream, disposal<<2 | (bcid >= 0));
-    bytestream_put_le16(bytestream, 5); // default delay
+    bytestream_put_le16(bytestream, delay>0?delay:5); // default delay
     bytestream_put_byte(bytestream, bcid < 0 ? DEFAULT_TRANSPARENCY_INDEX : bcid);
     bytestream_put_byte(bytestream, 0x00);
 
@@ -413,6 +414,7 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     uint8_t *outbuf_ptr, *end;
     const uint32_t *palette = NULL;
     int ret;
+    int64_t delay = -1;
 
     if ((ret = ff_alloc_packet2(avctx, pkt, avctx->width*avctx->height*7/5 + AV_INPUT_BUFFER_MIN_SIZE, 0)) < 0)
         return ret;
@@ -431,17 +433,40 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         }
     }
 
+    if (((s->flags & GF_LAST_FRAME_COPY)!=0) //we are allowed to copy frames
+        && (s->last_frame!=NULL) //we have a previous frame
+        ) {
+        delay = pict->pts - s->last_frame->pts;
+        if(delay > 0) {
+            delay=av_rescale(delay, 100, avctx->time_base.den);
+        }
+    }
+
     gif_image_write_image(avctx, &outbuf_ptr, end, palette,
-                          pict->data[0], pict->linesize[0], pkt);
+                          pict->data[0], pict->linesize[0], pkt, delay);
     if (!s->last_frame && !s->image) {
         s->last_frame = av_frame_alloc();
         if (!s->last_frame)
             return AVERROR(ENOMEM);
+        if (s->flags & GF_LAST_FRAME_COPY) {
+            av_frame_copy_props(s->last_frame, pict);
+            s->last_frame->format = pict->format;
+            s->last_frame->width = pict->width;
+            s->last_frame->height = pict->height;
+            ret = av_frame_get_buffer(s->last_frame, 32);
+            if (ret < 0) 
+                return ret;
+        }
     }
 
     if (!s->image) {
-        av_frame_unref(s->last_frame);
-        ret = av_frame_ref(s->last_frame, (AVFrame*)pict);
+        if (s->flags & GF_LAST_FRAME_COPY) {
+            av_frame_copy_props(s->last_frame, pict);
+            ret = av_frame_copy(s->last_frame, pict);
+        } else {
+            av_frame_unref(s->last_frame);
+            ret = av_frame_ref(s->last_frame, (AVFrame*)pict);
+        }
         if (ret < 0)
             return ret;
     }
@@ -472,6 +497,7 @@ static const AVOption gif_options[] = {
     { "gifflags", "set GIF flags", OFFSET(flags), AV_OPT_TYPE_FLAGS, {.i64 = GF_OFFSETTING|GF_TRANSDIFF}, 0, INT_MAX, FLAGS, "flags" },
         { "offsetting", "enable picture offsetting", 0, AV_OPT_TYPE_CONST, {.i64=GF_OFFSETTING}, INT_MIN, INT_MAX, FLAGS, "flags" },
         { "transdiff", "enable transparency detection between frames", 0, AV_OPT_TYPE_CONST, {.i64=GF_TRANSDIFF}, INT_MIN, INT_MAX, FLAGS, "flags" },
+        { "copyframe", "makes a deep copy of the input frame", 0, AV_OPT_TYPE_CONST, {.i64=GF_LAST_FRAME_COPY}, INT_MIN, INT_MAX, FLAGS, "flags" },
     { "gifimage", "enable encoding only images per frame", OFFSET(image), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS },
     { NULL }
 };
