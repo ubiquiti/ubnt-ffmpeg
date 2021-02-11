@@ -282,6 +282,11 @@ enum AVPacketSideDataType {
      */
     AV_PKT_DATA_DOVI_CONF,
 
+     /**
+     * The fixed part of the GIF file (the header)
+     */
+    AV_PKT_DATA_GIF_HEADER, 
+
     /**
      * The number of side data types.
      * This is not part of the public API/ABI in the sense that it may

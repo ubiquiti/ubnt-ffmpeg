@@ -281,6 +281,9 @@ static int gif_image_write_image(AVCodecContext *avctx,
         const uint32_t *global_palette = palette ? palette : s->palette;
         const AVRational sar = avctx->sample_aspect_ratio;
         int64_t aspect = 0;
+        uint8_t *start = *bytestream;
+        size_t headerSize = 0;
+        uint8_t *pSideData = NULL;
 
         if (sar.num > 0 && sar.den > 0) {
             aspect = sar.num * 64LL / sar.den - 15;
@@ -301,6 +304,10 @@ static int gif_image_write_image(AVCodecContext *avctx,
             const uint32_t v = global_palette[i] & 0xffffff;
             bytestream_put_be24(bytestream, v);
         }
+
+        headerSize = (*bytestream - start);
+        pSideData = av_packet_new_side_data(pkt, AV_PKT_DATA_GIF_HEADER, headerSize);
+        memcpy(pSideData, start, headerSize);
     }
 
     if (honor_transparency && trans < 0) {
