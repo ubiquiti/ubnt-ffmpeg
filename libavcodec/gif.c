@@ -61,6 +61,7 @@ enum {
     GF_OFFSETTING      = 1<<0,
     GF_TRANSDIFF       = 1<<1,
     GF_LAST_FRAME_COPY = 1<<2,
+    GF_LOOP            = 1<<3,
 };
 
 static int is_image_translucent(AVCodecContext *avctx,
@@ -260,7 +261,7 @@ static int gif_image_write_image(AVCodecContext *avctx,
                                  uint8_t **bytestream, uint8_t *end,
                                  const uint32_t *palette,
                                  const uint8_t *buf, const int linesize,
-                                 AVPacket *pkt, int64_t delay)
+                                 AVPacket *pkt, int64_t delay, uint16_t loop_count)
 {
     GIFContext *s = avctx->priv_data;
     int disposal, len = 0, height = avctx->height, width = avctx->width, x, y;
@@ -303,6 +304,60 @@ static int gif_image_write_image(AVCodecContext *avctx,
         for (int i = 0; i < 256; i++) {
             const uint32_t v = global_palette[i] & 0xffffff;
             bytestream_put_be24(bytestream, v);
+        }
+
+        /*
+         http://www.vurdalakov.net/misc/gif/netscape-looping-application-extension
+            +---------------+
+         0  |     0x21      |  Extension Label
+            +---------------+
+         1  |     0xFF      |  Application Extension Label
+            +---------------+
+         2  |     0x0B      |  Block Size
+            +---------------+
+         3  |               | 
+            +-             -+
+         4  |               | 
+            +-             -+
+         5  |               | 
+            +-             -+
+         6  |               | 
+            +-  NETSCAPE   -+  Application Identifier (8 bytes)
+         7  |               | 
+            +-             -+
+         8  |               | 
+            +-             -+
+         9  |               | 
+            +-             -+
+        10  |               | 
+            +---------------+
+        11  |               | 
+            +-             -+
+        12  |      2.0      |  Application Authentication Code (3 bytes)
+            +-             -+
+        13  |               | 
+            +===============+                      --+
+        14  |     0x03      |  Sub-block Data Size   |
+            +---------------+                        |
+        15  |     0x01      |  Sub-block ID          |
+            +---------------+                        | Application Data Sub-block
+        16  |               |                        |
+            +-             -+  Loop Count (2 bytes)  |
+        17  |               |                        |
+            +===============+                      --+
+        18  |     0x00      |  Block Terminator
+            +---------------+
+        */
+        if (loop_count > 0) {
+             const uint8_t app_id[] = {0x4e,0x45,0x54,0x53,0x43,0x41,0x50,0x45,0x32,0x2e,0x30};
+             bytestream_put_byte(bytestream, 0x21); // Extension Label
+             bytestream_put_byte(bytestream, 0xff); // Application Extension Label
+             bytestream_put_byte(bytestream, 0x0b); // Block Size
+             bytestream_put_buffer(bytestream, app_id, sizeof(app_id)); // NETSCAPE2.0
+             bytestream_put_byte(bytestream, 0x03); // Sub-block Data Size
+             bytestream_put_byte(bytestream, 0x01); // Sub-block ID
+             bytestream_put_le16(bytestream, loop_count);
+             bytestream_put_byte(bytestream, 0x00); // Block Terminator
         }
 
         headerSize = (*bytestream - start);
@@ -450,7 +505,7 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     }
 
     gif_image_write_image(avctx, &outbuf_ptr, end, palette,
-                          pict->data[0], pict->linesize[0], pkt, delay);
+                          pict->data[0], pict->linesize[0], pkt, delay, ((s->flags & GF_LOOP)?65535:0));
     if (!s->last_frame && !s->image) {
         s->last_frame = av_frame_alloc();
         if (!s->last_frame)
@@ -505,6 +560,7 @@ static const AVOption gif_options[] = {
         { "offsetting", "enable picture offsetting", 0, AV_OPT_TYPE_CONST, {.i64=GF_OFFSETTING}, INT_MIN, INT_MAX, FLAGS, "flags" },
         { "transdiff", "enable transparency detection between frames", 0, AV_OPT_TYPE_CONST, {.i64=GF_TRANSDIFF}, INT_MIN, INT_MAX, FLAGS, "flags" },
         { "copyframe", "makes a deep copy of the input frame", 0, AV_OPT_TYPE_CONST, {.i64=GF_LAST_FRAME_COPY}, INT_MIN, INT_MAX, FLAGS, "flags" },
+        { "loop", "enable animated gif loop", 0, AV_OPT_TYPE_CONST, {.i64=GF_LOOP}, INT_MIN, INT_MAX, FLAGS, "flags" },
     { "gifimage", "enable encoding only images per frame", OFFSET(image), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS },
     { NULL }
 };
