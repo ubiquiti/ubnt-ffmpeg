@@ -15,8 +15,9 @@
 --enable-decoder=mjpeg
 --enable-encoder=mjpeg
 --enable-encoder=gif
-
 --enable-swscale
+--enable-avfilter
+--enable-filter=crop
 
 #enable necessary formats
 --enable-avformat
