@@ -5,6 +5,21 @@
 --disable-all
 --disable-programs
 --disable-doc
+--disable-hwaccels
+--disable-cuda-llvm
+--disable-v4l2_m2m
+--disable-vaapi
+--disable-vdpau
+--disable-xlib
+--disable-sndio
+--disable-sdl2
+--disable-libxcb
+--disable-libxcb_shape
+--disable-libxcb_shm
+--disable-libxcb_xfixes
+--disable-lzma
+--disable-alsa
+
 
 #enable necessary codecs
 --enable-avcodec
