@@ -1,0 +1,26 @@
+#disable everything
+--disable-bzlib
+--disable-zlib
+--disable-iconv
+--disable-all
+--disable-programs
+--disable-doc
+
+#enable necessary codecs
+--enable-avcodec
+--enable-gpl
+--enable-decoder=h264
+--enable-libx264
+--enable-encoder=libx264
+--enable-decoder=mjpeg
+--enable-encoder=mjpeg
+--enable-encoder=gif
+--enable-swscale
+--enable-avfilter
+--enable-filter=crop
+
+#enable necessary formats
+--enable-avformat
+--enable-bsf=h264_mp4toannexb
+--enable-muxer=mp4
+--enable-muxer=gif

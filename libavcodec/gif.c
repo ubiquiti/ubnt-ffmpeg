@@ -61,8 +61,10 @@ typedef struct GIFContext {
 } GIFContext;
 
 enum {
-    GF_OFFSETTING = 1<<0,
-    GF_TRANSDIFF  = 1<<1,
+    GF_OFFSETTING      = 1<<0,
+    GF_TRANSDIFF       = 1<<1,
+    GF_LAST_FRAME_COPY = 1<<2,
+    GF_LOOP            = 1<<3,
 };
 
 static void shrink_palette(const uint32_t *src, uint8_t *map,
@@ -294,7 +296,7 @@ static int gif_image_write_image(AVCodecContext *avctx,
                                  uint8_t **bytestream, uint8_t *end,
                                  const uint32_t *palette,
                                  const uint8_t *buf, const int linesize,
-                                 AVPacket *pkt)
+                                 AVPacket *pkt, int64_t delay, uint16_t loop_count)
 {
     GIFContext *s = avctx->priv_data;
     int disposal, len = 0, height = avctx->height, width = avctx->width, x, y;
@@ -326,6 +328,9 @@ static int gif_image_write_image(AVCodecContext *avctx,
         const uint32_t *global_palette = palette ? palette : s->palette;
         const AVRational sar = avctx->sample_aspect_ratio;
         int64_t aspect = 0;
+        uint8_t *start = *bytestream;
+        size_t headerSize = 0;
+        uint8_t *pSideData = NULL;
 
         if (sar.num > 0 && sar.den > 0) {
             aspect = sar.num * 64LL / sar.den - 15;
@@ -348,6 +353,64 @@ static int gif_image_write_image(AVCodecContext *avctx,
                 bytestream_put_be24(bytestream, v);
             }
         }
+
+        /*
+         http://www.vurdalakov.net/misc/gif/netscape-looping-application-extension
+            +---------------+
+         0  |     0x21      |  Extension Label
+            +---------------+
+         1  |     0xFF      |  Application Extension Label
+            +---------------+
+         2  |     0x0B      |  Block Size
+            +---------------+
+         3  |               | 
+            +-             -+
+         4  |               | 
+            +-             -+
+         5  |               | 
+            +-             -+
+         6  |               | 
+            +-  NETSCAPE   -+  Application Identifier (8 bytes)
+         7  |               | 
+            +-             -+
+         8  |               | 
+            +-             -+
+         9  |               | 
+            +-             -+
+        10  |               | 
+            +---------------+
+        11  |               | 
+            +-             -+
+        12  |      2.0      |  Application Authentication Code (3 bytes)
+            +-             -+
+        13  |               | 
+            +===============+                      --+
+        14  |     0x03      |  Sub-block Data Size   |
+            +---------------+                        |
+        15  |     0x01      |  Sub-block ID          |
+            +---------------+                        | Application Data Sub-block
+        16  |               |                        |
+            +-             -+  Loop Count (2 bytes)  |
+        17  |               |                        |
+            +===============+                      --+
+        18  |     0x00      |  Block Terminator
+            +---------------+
+        */
+        if (loop_count > 0) {
+             const uint8_t app_id[] = {0x4e,0x45,0x54,0x53,0x43,0x41,0x50,0x45,0x32,0x2e,0x30};
+             bytestream_put_byte(bytestream, 0x21); // Extension Label
+             bytestream_put_byte(bytestream, 0xff); // Application Extension Label
+             bytestream_put_byte(bytestream, 0x0b); // Block Size
+             bytestream_put_buffer(bytestream, app_id, sizeof(app_id)); // NETSCAPE2.0
+             bytestream_put_byte(bytestream, 0x03); // Sub-block Data Size
+             bytestream_put_byte(bytestream, 0x01); // Sub-block ID
+             bytestream_put_le16(bytestream, loop_count);
+             bytestream_put_byte(bytestream, 0x00); // Block Terminator
+        }
+
+        headerSize = (*bytestream - start);
+        pSideData = av_packet_new_side_data(pkt, AV_PKT_DATA_GIF_HEADER, headerSize);
+        memcpy(pSideData, start, headerSize);
     }
 
     if (honor_transparency && trans < 0) {
@@ -372,7 +435,7 @@ static int gif_image_write_image(AVCodecContext *avctx,
     bytestream_put_byte(bytestream, GIF_GCE_EXT_LABEL);
     bytestream_put_byte(bytestream, 0x04); /* block size */
     bytestream_put_byte(bytestream, disposal<<2 | (bcid >= 0));
-    bytestream_put_le16(bytestream, 5); // default delay
+    bytestream_put_le16(bytestream, delay>0?delay:5); // default delay
     bytestream_put_byte(bytestream, bcid < 0 ? DEFAULT_TRANSPARENCY_INDEX : (shrunk_palette_count ? map[bcid] : bcid));
     bytestream_put_byte(bytestream, 0x00);
 
@@ -480,6 +543,7 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     uint8_t *outbuf_ptr, *end;
     const uint32_t *palette = NULL;
     int ret;
+    int64_t delay = -1;
 
     if ((ret = ff_alloc_packet(avctx, pkt, avctx->width*avctx->height*7/5 + AV_INPUT_BUFFER_MIN_SIZE)) < 0)
         return ret;
@@ -498,17 +562,40 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         }
     }
 
+    if (((s->flags & GF_LAST_FRAME_COPY)!=0) //we are allowed to copy frames
+        && (s->last_frame!=NULL) //we have a previous frame
+        ) {
+        delay = pict->pts - s->last_frame->pts;
+        if(delay > 0) {
+            delay=av_rescale(delay, 100, avctx->time_base.den);
+        }
+    }
+
     gif_image_write_image(avctx, &outbuf_ptr, end, palette,
-                          pict->data[0], pict->linesize[0], pkt);
+                          pict->data[0], pict->linesize[0], pkt, delay, ((s->flags & GF_LOOP)?65535:0));
     if (!s->last_frame && !s->image) {
         s->last_frame = av_frame_alloc();
         if (!s->last_frame)
             return AVERROR(ENOMEM);
+        if (s->flags & GF_LAST_FRAME_COPY) {
+            av_frame_copy_props(s->last_frame, pict);
+            s->last_frame->format = pict->format;
+            s->last_frame->width = pict->width;
+            s->last_frame->height = pict->height;
+            ret = av_frame_get_buffer(s->last_frame, 32);
+            if (ret < 0) 
+                return ret;
+        }
     }
 
     if (!s->image) {
-        av_frame_unref(s->last_frame);
-        ret = av_frame_ref(s->last_frame, (AVFrame*)pict);
+        if (s->flags & GF_LAST_FRAME_COPY) {
+            av_frame_copy_props(s->last_frame, pict);
+            ret = av_frame_copy(s->last_frame, pict);
+        } else {
+            av_frame_unref(s->last_frame);
+            ret = av_frame_ref(s->last_frame, (AVFrame*)pict);
+        }
         if (ret < 0)
             return ret;
     }
@@ -540,6 +627,8 @@ static const AVOption gif_options[] = {
     { "gifflags", "set GIF flags", OFFSET(flags), AV_OPT_TYPE_FLAGS, {.i64 = GF_OFFSETTING|GF_TRANSDIFF}, 0, INT_MAX, FLAGS, "flags" },
         { "offsetting", "enable picture offsetting", 0, AV_OPT_TYPE_CONST, {.i64=GF_OFFSETTING}, INT_MIN, INT_MAX, FLAGS, "flags" },
         { "transdiff", "enable transparency detection between frames", 0, AV_OPT_TYPE_CONST, {.i64=GF_TRANSDIFF}, INT_MIN, INT_MAX, FLAGS, "flags" },
+        { "copyframe", "makes a deep copy of the input frame", 0, AV_OPT_TYPE_CONST, {.i64=GF_LAST_FRAME_COPY}, INT_MIN, INT_MAX, FLAGS, "flags" },
+        { "loop", "enable animated gif loop", 0, AV_OPT_TYPE_CONST, {.i64=GF_LOOP}, INT_MIN, INT_MAX, FLAGS, "flags" },
     { "gifimage", "enable encoding only images per frame", OFFSET(image), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS },
     { "global_palette", "write a palette to the global gif header where feasible", OFFSET(use_global_palette), AV_OPT_TYPE_BOOL, {.i64=1}, 0, 1, FLAGS },
     { NULL }
