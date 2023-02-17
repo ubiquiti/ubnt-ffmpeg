@@ -299,6 +299,11 @@ enum AVPacketSideDataType {
      */
     AV_PKT_DATA_DYNAMIC_HDR10_PLUS,
 
+     /**
+     * The fixed part of the GIF file (the header)
+     */
+    AV_PKT_DATA_GIF_HEADER, 
+
     /**
      * IAMF Mix Gain Parameter Data associated with the audio frame. This metadata
      * is in the form of the AVIAMFParamDefinition struct and contains information
