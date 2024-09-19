@@ -204,6 +204,7 @@ static void reconfig_encoder(AVCodecContext *ctx, const AVFrame *frame)
     X264Context *x4 = ctx->priv_data;
     AVFrameSideData *side_data;
 
+    av_log(ctx, AV_LOG_ERROR, "#-> %s\n", __func__);
 
     if (x4->avcintra_class < 0) {
         if (x4->params.b_interlaced && x4->params.b_tff != frame->top_field_first) {
@@ -323,6 +324,8 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     int64_t wallclock = 0;
     X264Opaque *out_opaque;
     AVFrameSideData *sd;
+
+    av_log(ctx, AV_LOG_ERROR, "#-> %s\n", __func__);
 
     x264_picture_init( &x4->pic );
     x4->pic.img.i_csp   = x4->params.i_csp;
@@ -493,6 +496,8 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     }
 
     do {
+        av_log(ctx, AV_LOG_ERROR, "    %s About to x264_encoder_encode\n", __func__);
+
         if (x264_encoder_encode(x4->enc, &nal, &nnal, frame? &x4->pic: NULL, &pic_out) < 0)
             return AVERROR_EXTERNAL;
 
@@ -541,6 +546,8 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
             ff_side_data_set_prft(pkt, wallclock);
     }
 
+    av_log(ctx, AV_LOG_ERROR, "<-# %s\n", __func__);
+
     *got_packet = ret;
     return 0;
 }
@@ -568,6 +575,8 @@ static int parse_opts(AVCodecContext *avctx, const char *opt, const char *param)
 {
     X264Context *x4 = avctx->priv_data;
     int ret;
+
+    av_log(avctx, AV_LOG_ERROR, "    %s About to x264_param_parse ######################################\n", __func__);
 
     if ((ret = x264_param_parse(&x4->params, opt, param)) < 0) {
         if (ret == X264_PARAM_BAD_NAME) {
@@ -637,6 +646,9 @@ static av_cold int X264_init(AVCodecContext *avctx)
     AVCPBProperties *cpb_props;
     int sw,sh;
     int ret;
+ 
+    av_log(avctx, AV_LOG_WARNING, "#-> %s ########################## X264_init ###########################\n", __func__);
+
 
     if (avctx->global_quality > 0)
         av_log(avctx, AV_LOG_WARNING, "-qscale is ignored, -crf is recommended.\n");
@@ -1022,6 +1034,8 @@ static av_cold int X264_init(AVCodecContext *avctx)
                                               sizeof(*x4->reordered_opaque));
     if (!x4->reordered_opaque)
         return AVERROR(ENOMEM);
+
+    av_log(avctx, AV_LOG_WARNING, "<-# %s\n", __func__);
 
     return 0;
 }
