@@ -631,6 +631,7 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
         return ret;
 
     do {
+        av_log(ctx, AV_LOG_ERROR, "    %s About to x264_encoder_encode\n", __func__);
         if (x264_encoder_encode(x4->enc, &nal, &nnal, pic_in, &pic_out) < 0)
             return AVERROR_EXTERNAL;
 
@@ -744,6 +745,8 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
             ff_side_data_set_prft(pkt, wallclock);
     }
 
+    av_log(ctx, AV_LOG_ERROR, "<-# %s\n", __func__);
+
     *got_packet = ret;
     return 0;
 }
@@ -792,6 +795,8 @@ static int parse_opts(AVCodecContext *avctx, const char *opt, const char *param)
 {
     X264Context *x4 = avctx->priv_data;
     int ret;
+
+    av_log(avctx, AV_LOG_ERROR, "    %s About to x264_param_parse ######################################\n", __func__);
 
     if ((ret = x264_param_parse(&x4->params, opt, param)) < 0) {
         if (ret == X264_PARAM_BAD_NAME) {
@@ -1075,6 +1080,9 @@ static av_cold int X264_init(AVCodecContext *avctx)
     AVCPBProperties *cpb_props;
     int sw,sh;
     int ret;
+ 
+    av_log(avctx, AV_LOG_WARNING, "#-> %s ########################## X264_init ###########################\n", __func__);
+
 
     if (avctx->global_quality > 0)
         av_log(avctx, AV_LOG_WARNING, "-qscale is ignored, -crf is recommended.\n");
@@ -1454,6 +1462,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         x4->nb_reordered_opaque = 0;
         return AVERROR(ENOMEM);
     }
+    av_log(avctx, AV_LOG_WARNING, "<-# %s\n", __func__);
 
     return 0;
 }
